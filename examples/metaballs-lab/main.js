@@ -19,6 +19,7 @@ const refractionValue = document.getElementById("refractionValue");
 const stepsSlider = document.getElementById("stepsSlider");
 const stepsValue = document.getElementById("stepsValue");
 let currentMode = METABALL_DEBUG_MODES.MASK;
+const FIELD_CAGE_MODE = "field-cages";
 
 const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
 renderer.autoClear = false;
@@ -98,6 +99,9 @@ const markers = sources.map((source, i) => {
   scene.add(marker);
   return marker;
 });
+const fieldCages = createFieldCages(sources);
+fieldCages.lines.renderOrder = 30;
+scene.add(fieldCages.lines);
 
 const metaballs = new RaymarchedMetaballs({
   camera,
@@ -115,18 +119,22 @@ scene.add(metaballs.mesh);
 
 const debugModes = [
   [METABALL_DEBUG_MODES.MASK, "shape"],
+  [FIELD_CAGE_MODE, "field cages"],
   [METABALL_DEBUG_MODES.REFRACTED, "refraction"],
 ];
 
 const explanations = {
   [METABALL_DEBUG_MODES.MASK]:
     "Shape: the raymarched SDF is visible as a solid mask over the same background texture that the shader can sample.",
+  [FIELD_CAGE_MODE]:
+    "Field cages: source sphere wire vertices are projected through the combined smooth-min SDF, then drawn over the refracted surface.",
   [METABALL_DEBUG_MODES.REFRACTED]:
     "Refraction: the same SDF surface estimates a normal and uses it to offset the background texture lookup.",
 };
 
 const stackLabels = {
   [METABALL_DEBUG_MODES.MASK]: "SDF sources -> raymarched shape",
+  [FIELD_CAGE_MODE]: "background -> refracted surface -> projected cage lines",
   [METABALL_DEBUG_MODES.REFRACTED]: "SDF shape -> normal -> background offset",
 };
 
@@ -141,7 +149,9 @@ for (const [mode, label] of debugModes) {
 
 function setDebugMode(mode) {
   currentMode = mode;
-  metaballs.setDebugMode(mode);
+  metaballs.setDebugMode(
+    mode === FIELD_CAGE_MODE ? METABALL_DEBUG_MODES.REFRACTED : mode
+  );
   for (const button of modeButtons.children) {
     button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
   }
@@ -155,6 +165,7 @@ function syncControls() {
   const steps = Number(stepsSlider.value);
 
   metaballs.setSmoothing(smoothing);
+  fieldCages.smoothing = smoothing;
   metaballs.refractionStrength.value = refraction;
   metaballs.maxSteps.value = steps;
   floorMaterial.map = backgroundTextures[backgroundPattern.value];
@@ -191,6 +202,156 @@ function updateSources(time) {
     markers[i].position.copy(source.position);
     markers[i].rotation.set(t * 0.3, t * 0.5, t * 0.2);
   }
+}
+
+function createFieldCages(cageSources) {
+  const longitudeCount = 12;
+  const latitudeCount = 7;
+  const anchors = [];
+  const colors = [];
+  const palette = [
+    new THREE.Color(0xff9abc),
+    new THREE.Color(0x9cf5ff),
+    new THREE.Color(0xffe19a),
+  ];
+
+  const pushVertex = (sourceIndex, normal) => {
+    anchors.push({ sourceIndex, normal: normal.clone().normalize() });
+    colors.push(palette[sourceIndex % palette.length]);
+  };
+
+  const pushSegment = (sourceIndex, a, b) => {
+    pushVertex(sourceIndex, a);
+    pushVertex(sourceIndex, b);
+  };
+
+  for (let sourceIndex = 0; sourceIndex < cageSources.length; sourceIndex++) {
+    for (let lat = 1; lat < latitudeCount; lat++) {
+      const theta = (lat / latitudeCount) * Math.PI;
+      const y = Math.cos(theta);
+      const ringRadius = Math.sin(theta);
+
+      for (let lon = 0; lon < longitudeCount; lon++) {
+        const a = (lon / longitudeCount) * Math.PI * 2;
+        const b = ((lon + 1) / longitudeCount) * Math.PI * 2;
+        pushSegment(
+          sourceIndex,
+          new THREE.Vector3(Math.cos(a) * ringRadius, y, Math.sin(a) * ringRadius),
+          new THREE.Vector3(Math.cos(b) * ringRadius, y, Math.sin(b) * ringRadius)
+        );
+      }
+    }
+
+    for (let lon = 0; lon < longitudeCount; lon++) {
+      const phi = (lon / longitudeCount) * Math.PI * 2;
+
+      for (let lat = 0; lat < latitudeCount; lat++) {
+        const a = (lat / latitudeCount) * Math.PI;
+        const b = ((lat + 1) / latitudeCount) * Math.PI;
+        pushSegment(
+          sourceIndex,
+          new THREE.Vector3(Math.cos(phi) * Math.sin(a), Math.cos(a), Math.sin(phi) * Math.sin(a)),
+          new THREE.Vector3(Math.cos(phi) * Math.sin(b), Math.cos(b), Math.sin(phi) * Math.sin(b))
+        );
+      }
+    }
+  }
+
+  const positions = new Float32Array(anchors.length * 3);
+  const colorValues = new Float32Array(colors.length * 3);
+  colors.forEach((color, index) => {
+    color.toArray(colorValues, index * 3);
+  });
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage)
+  );
+  geometry.setAttribute("color", new THREE.BufferAttribute(colorValues, 3));
+
+  const material = new THREE.LineBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.95,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const lines = new THREE.LineSegments(geometry, material);
+  lines.frustumCulled = false;
+
+  return {
+    anchors,
+    lines,
+    positions,
+    smoothing: Number(smoothingSlider.value),
+  };
+}
+
+function updateFieldCages(cages) {
+  const p = new THREE.Vector3();
+  const projected = new THREE.Vector3();
+
+  cages.anchors.forEach((anchor, index) => {
+    const source = sources[anchor.sourceIndex];
+    projected
+      .copy(source.position)
+      .addScaledVector(anchor.normal, source.radius);
+
+    projectToMetaballSurface(projected, anchor.normal, cages.smoothing);
+    p.copy(projected);
+    p.toArray(cages.positions, index * 3);
+  });
+
+  cages.lines.geometry.attributes.position.needsUpdate = true;
+}
+
+function projectToMetaballSurface(point, fallbackNormal, smoothing) {
+  const normal = projectToMetaballSurface.normal;
+
+  for (let i = 0; i < 5; i++) {
+    const distance = smoothMinDistance(point, smoothing);
+    if (Math.abs(distance) < 0.002) break;
+
+    estimateFieldNormal(point, smoothing, normal);
+    if (normal.lengthSq() < 0.0001) {
+      normal.copy(fallbackNormal);
+    }
+
+    point.addScaledVector(normal.normalize(), -distance);
+  }
+}
+projectToMetaballSurface.normal = new THREE.Vector3();
+
+function smoothMinDistance(point, smoothing) {
+  return smoothMinDistanceAt(point.x, point.y, point.z, smoothing);
+}
+
+function smoothMinDistanceAt(x, y, z, smoothing) {
+  let distance = 20;
+
+  for (const source of sources) {
+    const dx = x - source.position.x;
+    const dy = y - source.position.y;
+    const dz = z - source.position.z;
+    const next = Math.hypot(dx, dy, dz) - source.radius;
+    const h = THREE.MathUtils.clamp((next - distance) / smoothing * 0.5 + 0.5, 0, 1);
+    distance = THREE.MathUtils.lerp(next, distance, h) - h * (1 - h) * smoothing;
+  }
+
+  return distance;
+}
+
+function estimateFieldNormal(point, smoothing, target) {
+  const epsilon = 0.025;
+  return target.set(
+    smoothMinDistanceAt(point.x + epsilon, point.y, point.z, smoothing) -
+      smoothMinDistanceAt(point.x - epsilon, point.y, point.z, smoothing),
+    smoothMinDistanceAt(point.x, point.y + epsilon, point.z, smoothing) -
+      smoothMinDistanceAt(point.x, point.y - epsilon, point.z, smoothing),
+    smoothMinDistanceAt(point.x, point.y, point.z + epsilon, smoothing) -
+      smoothMinDistanceAt(point.x, point.y, point.z - epsilon, smoothing)
+  );
 }
 
 function resize() {
@@ -283,9 +444,11 @@ renderer.setAnimationLoop((milliseconds) => {
   const time = milliseconds / 1000;
   controls.update();
   updateSources(time);
+  updateFieldCages(fieldCages);
   markers.forEach((marker) => {
     marker.visible = sourcesToggle.checked;
   });
+  fieldCages.lines.visible = currentMode === FIELD_CAGE_MODE;
   fitBackgroundPlate();
   metaballs.update();
   readout.textContent = `${sources.length} animated SDF sources`;
