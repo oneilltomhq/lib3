@@ -1,4 +1,4 @@
-# @pipefold/lib3
+# @oneilltom/lib3
 
 Composable TSL (Three.js Shading Language) nodes and utilities for Three.js
 WebGPU. A collection of reusable shader building blocks for waves, morphing,
@@ -19,13 +19,13 @@ raymarching, and procedural effects.
 ## Installation
 
 ```bash
-pnpm add @pipefold/lib3
+pnpm add @oneilltom/lib3
 ```
 
 Or with npm:
 
 ```bash
-npm install @pipefold/lib3
+npm install @oneilltom/lib3
 ```
 
 **Requirements:**
@@ -37,7 +37,7 @@ npm install @pipefold/lib3
 
 ```javascript
 import * as THREE from "three/webgpu";
-import { sphericalWaveDisplacement } from "@pipefold/lib3/waves";
+import { sphericalWaveDisplacement } from "@oneilltom/lib3/waves";
 import { float, vec3 } from "three/tsl";
 
 // Create material with wave displacement
@@ -57,7 +57,7 @@ scene.add(mesh);
 
 ## API Reference
 
-### Waves (`@pipefold/lib3/waves`)
+### Waves (`@oneilltom/lib3/waves`)
 
 #### `sphericalWaveDisplacement(options)`
 
@@ -108,7 +108,7 @@ High-quality 3D simplex noise function.
 
 **Returns:** float in [-1, 1]
 
-### Morphing (`@pipefold/lib3/knotMorph`)
+### Morphing (`@oneilltom/lib3/knotMorph`)
 
 #### `knotMorphPosition(options)`
 
@@ -134,7 +134,7 @@ material.positionNode = knotMorphPosition({
 });
 ```
 
-### Thunder (`@pipefold/lib3/thunder`)
+### Thunder (`@oneilltom/lib3/thunder`)
 
 Volumetric contained-lightning effect driven by fluid simulation fields.
 
@@ -169,7 +169,7 @@ Named parameter presets: `'Contained Cocoon'`, `'Silent Pressure'`, `'Caged Arc 
 **Usage:**
 
 ```javascript
-import { createThunderNode, createThunderStateMachine } from "@pipefold/lib3/thunder";
+import { createThunderNode, createThunderStateMachine } from "@oneilltom/lib3/thunder";
 
 const { node, uniforms } = createThunderNode({
   densityTexture: fluid.getDensityTexture3D(),
@@ -184,7 +184,7 @@ thunder.setPreset('Caged Arc Storm');
 thunder.update(deltaTime);
 ```
 
-### Raymarching (`@pipefold/lib3`)
+### Raymarching (`@oneilltom/lib3`)
 
 #### `adaptiveRaymarch(maxSteps, callback, threshold)`
 
@@ -273,12 +273,12 @@ The package provides multiple entry points for tree-shaking:
 
 ```javascript
 // Main bundle (all utilities)
-import { sphericalWaveDisplacement, knotMorphPosition } from "@pipefold/lib3";
+import { sphericalWaveDisplacement, knotMorphPosition } from "@oneilltom/lib3";
 
 // Individual modules (smaller bundles)
-import { sphericalWaveDisplacement } from "@pipefold/lib3/waves";
-import { knotMorphPosition } from "@pipefold/lib3/knotMorph";
-import { createThunderNode, THUNDER_PRESETS } from "@pipefold/lib3/thunder";
+import { sphericalWaveDisplacement } from "@oneilltom/lib3/waves";
+import { knotMorphPosition } from "@oneilltom/lib3/knotMorph";
+import { createThunderNode, THUNDER_PRESETS } from "@oneilltom/lib3/thunder";
 ```
 
 ## WebGPU Compatibility
@@ -302,4 +302,4 @@ Contributions are welcome! Please feel free to submit issues or pull requests.
 
 ## Repository
 
-[github.com/pipefold/lib3](https://github.com/pipefold/lib3)
+[github.com/oneilltomhq/lib3](https://github.com/oneilltomhq/lib3)

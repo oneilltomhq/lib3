@@ -1,6 +1,6 @@
 {
-  "name": "@pipefold/lib3",
-  "version": "0.1.1-next.1",
+  "name": "@oneilltom/lib3",
+  "version": "0.2.0",
   "description": "Composable TSL nodes and utilities for Three.js/WebGPU (waves, morphs).",
   "type": "module",
   "sideEffects": false,
@@ -36,11 +36,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pipefold/lib3.git"
+    "url": "git+https://github.com/oneilltomhq/lib3.git"
   },
-  "homepage": "https://github.com/pipefold/lib3#readme",
+  "homepage": "https://github.com/oneilltomhq/lib3#readme",
   "bugs": {
-    "url": "https://github.com/pipefold/lib3/issues"
+    "url": "https://github.com/oneilltomhq/lib3/issues"
   },
   "packageManager": "pnpm@10.15.0",
   "devDependencies": {

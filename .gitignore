@@ -2,3 +2,7 @@ node_modules/
 dist/
 examples/dist/
 .vercel
+.pnpm-store/
+.omx/
+.env*
+*.png
