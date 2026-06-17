@@ -12,6 +12,7 @@ raymarching, and procedural effects.
 - 🎯 **Raymarching** - Adaptive raymarching and volumetric rendering utilities
 - ⚡ **Thunder Lightning** - Volumetric contained-lightning with fluid-driven filaments
 - 🫧 **Metaballs** - Smooth-min SDF globules rendered with TSL raymarching
+- 🔤 **SDF Text** - CPU glyph atlas + GPU instanced TSL text rendering
 - 🧩 **Composable** - Pure TSL nodes that compose naturally with Three.js WebGPU
 - 📦 **Tree-shakeable** - Modular exports for optimal bundle size
 - 🎨 **Example Gallery** - 13+ interactive examples showcasing different
@@ -281,6 +282,56 @@ Estimates an SDF normal with central differences.
 Sphere-traces an SDF over a configurable ray interval. Returns hit state, hit
 position, ray distance, step count, and final sampled distance.
 
+### SDF (`@oneilltom/lib3/sdf`)
+
+#### `computeSDF(imageData, width, height, alphaThreshold?)`
+
+Felzenszwalb Euclidean distance transform on CPU. Returns signed distances
+(negative inside glyph, positive outside).
+
+#### `SDF_DEFAULTS`
+
+Glyph atlas tuning constants (`GLYPH_SIZE`, `SDF_SIZE`, `MAX_DISTANCE`, etc.).
+
+### SDF Text (`@oneilltom/lib3/sdf-text`)
+
+Atlas SDFs are computed on CPU when glyphs are first requested; rendering uses
+WebGPU TSL with instanced draws and `fwidth()` screen-space anti-aliasing.
+
+#### `FontAtlas`
+
+Rasterizes glyphs via `OffscreenCanvas`, runs `computeSDF`, uploads a
+`DataTexture` float atlas.
+
+#### `Text`
+
+Lightweight `Object3D` holder: `text`, `fontSize`, `color`.
+
+#### `BatchedText`
+
+Instanced mesh renderer. Call `addText(text)`, then `sync()` each frame to
+upload matrices and glyph UV rects.
+
+```javascript
+import { BatchedText, Text } from "@oneilltom/lib3/sdf-text";
+
+const batched = new BatchedText(64, 1, undefined, { outlineWidth: 0.03 });
+scene.add(batched);
+
+const label = new Text();
+label.text = "Hi";
+label.fontSize = 1;
+label.scale.setScalar(1);
+scene.add(label);
+batched.addText(label);
+
+function animate() {
+  label.updateMatrixWorld();
+  batched.sync();
+  renderer.render(scene, camera);
+}
+```
+
 ## Examples
 
 The package includes 13+ examples demonstrating various techniques:
@@ -289,6 +340,7 @@ The package includes 13+ examples demonstrating various techniques:
 - **knot-morph** - Geometry morphing between torus knots
 - **raymarch-head** - 3D medical data visualization
 - **metaballs-lab** - Raymarched smooth-min globules
+- **sdf-text-lab** - CPU atlas + GPU instanced SDF text
 - **metaballs-explainer** - Step-by-step SDF and raymarching walkthrough
 - **raymarch-head-wave-displacement** - Volumetric waves
 - **portal-door-transition** - Portal effects
@@ -335,7 +387,9 @@ lib3/
 │   ├── smokeMaterial.js  # Volumetric smoke material
 │   ├── blueNoise.js     # Compute mip-aware blue noise
 │   ├── thunder.js       # Contained thunder effect
-│   └── metaballs.js     # Smooth-min SDF globules
+│   ├── metaballs.js     # Smooth-min SDF globules
+│   ├── sdf/             # CPU EDT helpers
+│   └── sdf-text/        # Font atlas + batched TSL text
 ├── examples/            # Interactive examples
 ├── dist/                # Built library (published)
 └── package.json
@@ -354,6 +408,8 @@ import { sphericalWaveDisplacement } from "@oneilltom/lib3/waves";
 import { knotMorphPosition } from "@oneilltom/lib3/knotMorph";
 import { createThunderNode, THUNDER_PRESETS } from "@oneilltom/lib3/thunder";
 import { RaymarchedMetaballs } from "@oneilltom/lib3/metaballs";
+import { computeSDF } from "@oneilltom/lib3/sdf";
+import { BatchedText } from "@oneilltom/lib3/sdf-text";
 ```
 
 ## WebGPU Compatibility

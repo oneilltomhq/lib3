@@ -40,6 +40,12 @@ function renderIndex(entries) {
     </body></html>`;
 }
 
+const exampleIndexFiles = () =>
+  glob("examples/**/index.html", { ignore: ["examples/dist/**"] });
+
+const exampleIndexFilesSync = () =>
+  glob.sync("examples/**/index.html", { ignore: ["examples/dist/**"] });
+
 function examplesIndexPlugin() {
   return {
     name: "examples-index",
@@ -47,7 +53,7 @@ function examplesIndexPlugin() {
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         if (req.url !== "/" && req.url !== "/index.html") return next();
-        const files = await glob("examples/**/index.html");
+        const files = await exampleIndexFiles();
         const entries = files
           .map((file) => {
             const href = file.replace(/index.html$/, "");
@@ -68,7 +74,7 @@ function examplesIndexBuildPlugin() {
     name: "examples-index-build",
     apply: "build",
     generateBundle() {
-      const files = glob.sync("examples/**/index.html");
+      const files = exampleIndexFilesSync();
       const entries = files
         .map((file) => {
           const href = file.replace(/index.html$/, "");
@@ -87,7 +93,6 @@ export default defineConfig(({ mode }) => {
     // Shared config (e.g., resolve alias for examples to import from src/)
     resolve: {
       alias: {
-        "@pipefold/lib3": resolve(__dirname, "src/index.js"),
         "@oneilltom/lib3": resolve(__dirname, "src/index.js"),
         "@videos": resolve(__dirname, "examples/assets/videos"),
         "@textures": resolve(__dirname, "examples/assets/textures"),
@@ -115,7 +120,7 @@ export default defineConfig(({ mode }) => {
         // Multi-page build config (dynamic inputs via glob)
         rollupOptions: {
           input: Object.fromEntries(
-            glob.sync("examples/**/index.html").map((file) => [
+            exampleIndexFilesSync().map((file) => [
               // Key: relative path without .html (e.g., 'examples/example1/index')
               // This preserves sub-directory structure in dist-examples/
               file.slice(0, -5),
@@ -140,6 +145,8 @@ export default defineConfig(({ mode }) => {
             knotMorph: resolve(__dirname, "src/knotMorph.js"),
             thunder: resolve(__dirname, "src/thunder.js"),
             metaballs: resolve(__dirname, "src/metaballs.js"),
+            sdf: resolve(__dirname, "src/sdf/index.js"),
+            sdfText: resolve(__dirname, "src/sdf-text/index.js"),
           },
           formats: ["es"],
         },
