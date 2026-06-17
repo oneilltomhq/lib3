@@ -139,11 +139,12 @@ export default defineConfig(({ mode }) => {
             waves: resolve(__dirname, "src/waves.js"),
             knotMorph: resolve(__dirname, "src/knotMorph.js"),
             thunder: resolve(__dirname, "src/thunder.js"),
+            metaballs: resolve(__dirname, "src/metaballs.js"),
           },
           formats: ["es"],
         },
         rollupOptions: {
-          external: ["three", "three/tsl"],
+          external: (id) => id === "three" || id.startsWith("three/"),
         },
         sourcemap: true,
         emptyOutDir: true,

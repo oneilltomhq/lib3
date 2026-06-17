@@ -60,6 +60,25 @@
         white-space: nowrap;
       }
 
+      .fps {
+        position: fixed;
+        right: 16px;
+        top: 16px;
+        min-width: 72px;
+        border: 1px solid rgb(255 255 255 / 0.18);
+        border-radius: 6px;
+        background: rgb(7 9 13 / 0.82);
+        box-shadow: 0 12px 36px rgb(0 0 0 / 0.3);
+        color: rgb(255 255 255 / 0.94);
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+        font-weight: 700;
+        line-height: 1;
+        padding: 8px 10px;
+        text-align: right;
+        backdrop-filter: blur(14px);
+      }
+
       .modes {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -181,6 +200,7 @@
   </head>
   <body>
     <canvas id="canvas"></canvas>
+    <div class="fps" id="fpsMeter">-- fps</div>
     <section class="panel" aria-label="Metaballs controls">
       <div class="title">
         <h1>Metaballs Lab</h1>
@@ -193,8 +213,8 @@
           <p class="group-title">SDF</p>
           <div class="sliders">
             <label>
-              smoothing <span id="smoothingValue">0.34</span>
-              <input id="smoothingSlider" type="range" min="0.02" max="0.7" step="0.01" value="0.34" />
+              smoothing <span id="smoothingValue">0.70</span>
+              <input id="smoothingSlider" type="range" min="0.02" max="0.7" step="0.01" value="0.7" />
             </label>
           </div>
         </div>
@@ -202,8 +222,8 @@
           <p class="group-title">Raymarch</p>
           <div class="sliders">
             <label>
-              steps <span id="stepsValue">56</span>
-              <input id="stepsSlider" type="range" min="8" max="120" step="1" value="56" />
+              steps <span id="stepsValue">120</span>
+              <input id="stepsSlider" type="range" min="8" max="120" step="1" value="120" />
             </label>
           </div>
         </div>
@@ -211,8 +231,25 @@
           <p class="group-title">Shading</p>
           <div class="sliders">
             <label>
-              refraction <span id="refractionValue">0.20</span>
-              <input id="refractionSlider" type="range" min="0" max="0.5" step="0.01" value="0.2" />
+              refraction <span id="refractionValue">0.00</span>
+              <input id="refractionSlider" type="range" min="0" max="0.5" step="0.01" value="0" />
+            </label>
+          </div>
+        </div>
+        <div class="group">
+          <p class="group-title">Dance</p>
+          <div class="sliders">
+            <label>
+              speed <span id="danceSpeedValue">1.00</span>
+              <input id="danceSpeedSlider" type="range" min="0" max="2" step="0.01" value="1" />
+            </label>
+            <label>
+              violence <span id="danceViolenceValue">1.00</span>
+              <input id="danceViolenceSlider" type="range" min="0" max="2" step="0.01" value="1" />
+            </label>
+            <label>
+              pulse <span id="dancePulseValue">1.00</span>
+              <input id="dancePulseSlider" type="range" min="0" max="2" step="0.01" value="1" />
             </label>
           </div>
         </div>
@@ -220,7 +257,7 @@
           <p class="group-title">Scene Inputs</p>
           <div class="toggles">
             <label class="toggle">
-              <input id="sourcesToggle" type="checkbox" checked />
+              <input id="sourcesToggle" type="checkbox" />
               source spheres
             </label>
             <label>

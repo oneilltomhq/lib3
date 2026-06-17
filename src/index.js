@@ -8,6 +8,13 @@ export {
 } from "./waves.js";
 export { knotMorphPosition } from "./knotMorph.js";
 export { adaptiveRaymarch, averageIntensityProjection } from "./raymarch.js";
+export {
+  METABALL_DEBUG_MODES,
+  smoothMinSphereSdf,
+  estimateSdfNormal,
+  raymarchSdf,
+  RaymarchedMetaballs,
+} from "./metaballs.js";
 
 // Example TSL function (add your own here)
 export function exampleTSLFunction(input) {

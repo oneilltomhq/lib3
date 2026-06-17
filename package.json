@@ -1,7 +1,7 @@
 {
   "name": "@oneilltom/lib3",
   "version": "0.2.0",
-  "description": "Composable TSL nodes and utilities for Three.js/WebGPU (waves, morphs).",
+  "description": "Composable TSL nodes and utilities for Three.js/WebGPU (waves, morphs, metaballs).",
   "type": "module",
   "sideEffects": false,
   "main": "dist/index.js",
@@ -18,6 +18,9 @@
     },
     "./thunder": {
       "import": "./dist/thunder.js"
+    },
+    "./metaballs": {
+      "import": "./dist/metaballs.js"
     }
   },
   "publishConfig": {

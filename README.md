@@ -11,6 +11,7 @@ raymarching, and procedural effects.
 - 🔀 **Mesh Morphing** - Smooth position-based geometry morphing
 - 🎯 **Raymarching** - Adaptive raymarching and volumetric rendering utilities
 - ⚡ **Thunder Lightning** - Volumetric contained-lightning with fluid-driven filaments
+- 🫧 **Metaballs** - Smooth-min SDF globules rendered with TSL raymarching
 - 🧩 **Composable** - Pure TSL nodes that compose naturally with Three.js WebGPU
 - 📦 **Tree-shakeable** - Modular exports for optimal bundle size
 - 🎨 **Example Gallery** - 13+ interactive examples showcasing different
@@ -210,6 +211,76 @@ Average intensity projection for volumetric rendering.
 
 **Returns:** vec4 color
 
+### Metaballs (`@oneilltom/lib3/metaballs`)
+
+#### `RaymarchedMetaballs(options)`
+
+Creates a fitted screen-space quad that raymarches smooth-min sphere SDF
+sources. Source positions and radii are synced from CPU objects each frame.
+The renderer works in four stages: source spheres define signed distances,
+smooth-min blends those distances, sphere tracing finds the surface along the
+camera ray, and the hit normal drives refraction/fresnel shading.
+
+**Parameters:**
+
+- `camera` - PerspectiveCamera used for ray origin and quad fitting
+- `sources` - Array of `{ position, radius }` objects
+- `sceneTexture` - Texture sampled for refracted surface color
+- `rimTexture` - Optional texture sampled for fresnel rim highlights
+- `smoothing` - Smooth-min blend radius (default: 0.3)
+- `maxSteps` - Maximum sphere-tracing iterations (default: 56)
+- `hitThreshold` - Distance threshold for accepting a ray hit
+- `debugMode` - One of `METABALL_DEBUG_MODES` (default: `BEAUTY`)
+- `quadDistance` - Camera-space distance for the screen-facing proxy quad
+
+**Usage:**
+
+```javascript
+import {
+  METABALL_DEBUG_MODES,
+  RaymarchedMetaballs,
+} from "@oneilltom/lib3/metaballs";
+
+const metaballs = new RaymarchedMetaballs({
+  camera,
+  sources,
+  sceneTexture: previousFrameTarget.texture,
+});
+
+scene.add(metaballs.mesh);
+metaballs.setDebugMode(METABALL_DEBUG_MODES.NORMAL);
+
+function animate() {
+  metaballs.update();
+  renderer.render(scene, camera);
+}
+```
+
+**Debug modes:**
+
+- `BEAUTY` - final refracted/fresnel material
+- `BACKGROUND` - raw scene texture sample before SDF shading
+- `REFRACTED` - normal-offset scene texture sample before fresnel/rim
+- `MASK` - ray hit mask
+- `NORMAL` - encoded SDF normal
+- `DEPTH` - hit distance within the fitted ray interval
+- `STEPS` - sphere-tracing iteration heatmap
+- `FRESNEL` - grazing-angle rim term
+- `RIM` - rim texture contribution after fresnel and rim strength
+
+#### `smoothMinSphereSdf(options)`
+
+Builds a smooth-min sphere SDF node from uniform position/radius arrays.
+
+#### `estimateSdfNormal(options)`
+
+Estimates an SDF normal with central differences.
+
+#### `raymarchSdf(options)`
+
+Sphere-traces an SDF over a configurable ray interval. Returns hit state, hit
+position, ray distance, step count, and final sampled distance.
+
 ## Examples
 
 The package includes 13+ examples demonstrating various techniques:
@@ -217,6 +288,8 @@ The package includes 13+ examples demonstrating various techniques:
 - **hello-world** - Basic TSL function usage
 - **knot-morph** - Geometry morphing between torus knots
 - **raymarch-head** - 3D medical data visualization
+- **metaballs-lab** - Raymarched smooth-min globules
+- **metaballs-explainer** - Step-by-step SDF and raymarching walkthrough
 - **raymarch-head-wave-displacement** - Volumetric waves
 - **portal-door-transition** - Portal effects
 - **cinematic-gallery** - Lighting and materials showcase
@@ -261,7 +334,8 @@ lib3/
 │   ├── fluidSim.js      # SmokeVolume fluid simulation
 │   ├── smokeMaterial.js  # Volumetric smoke material
 │   ├── blueNoise.js     # Compute mip-aware blue noise
-│   └── thunder.js       # Contained thunder effect
+│   ├── thunder.js       # Contained thunder effect
+│   └── metaballs.js     # Smooth-min SDF globules
 ├── examples/            # Interactive examples
 ├── dist/                # Built library (published)
 └── package.json
@@ -279,6 +353,7 @@ import { sphericalWaveDisplacement, knotMorphPosition } from "@oneilltom/lib3";
 import { sphericalWaveDisplacement } from "@oneilltom/lib3/waves";
 import { knotMorphPosition } from "@oneilltom/lib3/knotMorph";
 import { createThunderNode, THUNDER_PRESETS } from "@oneilltom/lib3/thunder";
+import { RaymarchedMetaballs } from "@oneilltom/lib3/metaballs";
 ```
 
 ## WebGPU Compatibility

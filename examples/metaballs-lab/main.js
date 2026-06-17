@@ -1,13 +1,17 @@
 import * as THREE from "three/webgpu";
+import { attribute, Fn, int, Loop, normalize } from "three/tsl";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import {
+  estimateSdfNormal,
   METABALL_DEBUG_MODES,
   RaymarchedMetaballs,
+  smoothMinSphereSdf,
 } from "../../src/metaballs.js";
 
 const canvas = document.getElementById("canvas");
 const modeButtons = document.getElementById("modeButtons");
 const readout = document.getElementById("readout");
+const fpsMeter = document.getElementById("fpsMeter");
 const explain = document.getElementById("explain");
 const stackReadout = document.getElementById("stackReadout");
 const sourcesToggle = document.getElementById("sourcesToggle");
@@ -18,8 +22,14 @@ const refractionSlider = document.getElementById("refractionSlider");
 const refractionValue = document.getElementById("refractionValue");
 const stepsSlider = document.getElementById("stepsSlider");
 const stepsValue = document.getElementById("stepsValue");
-let currentMode = METABALL_DEBUG_MODES.MASK;
+const danceSpeedSlider = document.getElementById("danceSpeedSlider");
+const danceSpeedValue = document.getElementById("danceSpeedValue");
+const danceViolenceSlider = document.getElementById("danceViolenceSlider");
+const danceViolenceValue = document.getElementById("danceViolenceValue");
+const dancePulseSlider = document.getElementById("dancePulseSlider");
+const dancePulseValue = document.getElementById("dancePulseValue");
 const FIELD_CAGE_MODE = "field-cages";
+let currentMode = FIELD_CAGE_MODE;
 
 const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
 renderer.autoClear = false;
@@ -76,46 +86,46 @@ const floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), floorMaterial);
 backgroundScene.add(floor);
 
 const markerGeometry = new THREE.IcosahedronGeometry(1, 2);
-const markerMaterials = [
-  makeMarkerMaterial(0xff7aa8),
-  makeMarkerMaterial(0x7af0ff),
-  makeMarkerMaterial(0xffdc7a),
-];
+const markerMaterial = makeMarkerMaterial();
 
-const sources = Array.from({ length: 18 }, (_, i) => ({
-  position: new THREE.Vector3(),
-  radius: 0.14 + Math.pow((i % 6) / 5, 1.5) * 0.34,
-  phase: i * 0.73,
-  lane: i % 3,
-}));
+const sources = Array.from({ length: 18 }, (_, i) => {
+  const baseRadius = 0.14 + Math.pow((i % 6) / 5, 1.5) * 0.34;
+  return {
+    position: new THREE.Vector3(),
+    radius: baseRadius,
+    baseRadius,
+    phase: i * 0.73,
+    lane: i % 3,
+  };
+});
 
 const markers = sources.map((source, i) => {
   const marker = new THREE.Mesh(
     markerGeometry,
-    markerMaterials[i % markerMaterials.length]
+    markerMaterial
   );
   marker.renderOrder = 20;
   marker.scale.setScalar(source.radius);
   scene.add(marker);
   return marker;
 });
-const fieldCages = createFieldCages(sources);
-fieldCages.lines.renderOrder = 30;
-scene.add(fieldCages.lines);
-
 const metaballs = new RaymarchedMetaballs({
   camera,
   sources,
   sceneTexture: backgroundTarget.texture,
   rimTexture: backgroundTarget.texture,
-  smoothing: 0.34,
-  refractionStrength: 0.2,
+  smoothing: 0.7,
+  refractionStrength: 0,
   fresnelBase: 1,
   fresnelStrength: 0,
   rimStrength: 0,
   quadZ: 2.35,
 });
 scene.add(metaballs.mesh);
+
+const fieldCages = createFieldCages(sources, metaballs);
+fieldCages.lines.renderOrder = 30;
+scene.add(fieldCages.lines);
 
 const debugModes = [
   [METABALL_DEBUG_MODES.MASK, "shape"],
@@ -163,6 +173,9 @@ function syncControls() {
   const smoothing = Number(smoothingSlider.value);
   const refraction = Number(refractionSlider.value);
   const steps = Number(stepsSlider.value);
+  const danceSpeed = Number(danceSpeedSlider.value);
+  const danceViolence = Number(danceViolenceSlider.value);
+  const dancePulse = Number(dancePulseSlider.value);
 
   metaballs.setSmoothing(smoothing);
   fieldCages.smoothing = smoothing;
@@ -174,9 +187,19 @@ function syncControls() {
   smoothingValue.textContent = smoothing.toFixed(2);
   refractionValue.textContent = refraction.toFixed(2);
   stepsValue.textContent = String(steps);
+  danceSpeedValue.textContent = danceSpeed.toFixed(2);
+  danceViolenceValue.textContent = danceViolence.toFixed(2);
+  dancePulseValue.textContent = dancePulse.toFixed(2);
 }
 
-[smoothingSlider, refractionSlider, stepsSlider].forEach((input) => {
+[
+  smoothingSlider,
+  refractionSlider,
+  stepsSlider,
+  danceSpeedSlider,
+  danceViolenceSlider,
+  dancePulseSlider,
+].forEach((input) => {
   input.addEventListener("input", syncControls);
 });
 
@@ -184,40 +207,54 @@ function syncControls() {
   input.addEventListener("input", syncControls);
 });
 
-setDebugMode(METABALL_DEBUG_MODES.MASK);
+setDebugMode(FIELD_CAGE_MODE);
 syncControls();
 
 function updateSources(time) {
+  const danceSpeed = Number(danceSpeedSlider.value);
+  const danceViolence = Number(danceViolenceSlider.value);
+  const dancePulse = Number(dancePulseSlider.value);
+  const frameTime = updateSources.frameTime ?? time;
+  const deltaTime = Math.min(0.05, Math.max(0, time - frameTime));
+  updateSources.frameTime = time;
+  updateSources.motionTime = (updateSources.motionTime ?? time) + deltaTime * danceSpeed;
+  const motionTime = updateSources.motionTime;
+
   for (let i = 0; i < sources.length; i++) {
     const source = sources[i];
     const lane = source.lane - 1;
-    const t = time * (0.52 + source.lane * 0.09) + source.phase;
+    const t = motionTime * (1.25 + source.lane * 0.28) + source.phase;
+    const boil = motionTime * (3.2 + (i % 5) * 0.17) + source.phase * 1.7;
+    const snap = Math.sin(boil * 1.9 + i) * Math.cos(boil * 0.73);
+    const swirl = 0.4 + danceViolence * 0.85;
+    const churn = danceViolence * 0.45;
 
     source.position.set(
-      0.45 + Math.sin(t * 0.91) * 1.35 + lane * 0.35,
-      Math.sin(t * 1.31 + lane) * 0.85,
-      Math.cos(t * 0.73 + i * 0.11) * 0.55
+      Math.sin(t * 1.17) * swirl +
+        Math.sin(boil * 2.1 + lane) * churn +
+        lane * 0.22 +
+        snap * danceViolence * 0.2,
+      Math.sin(t * 1.73 + lane) * (0.32 + danceViolence * 0.5) +
+        Math.cos(boil * 2.6 + i * 0.31) * churn,
+      Math.cos(t * 1.31 + i * 0.11) * (0.25 + danceViolence * 0.37) +
+        Math.sin(boil * 1.43 + lane * 1.9) * danceViolence * 0.38
     );
+    source.radius = source.baseRadius *
+      (0.86 + Math.sin(boil * 2.4 + i) * dancePulse * 0.14);
 
     markers[i].position.copy(source.position);
-    markers[i].rotation.set(t * 0.3, t * 0.5, t * 0.2);
+    markers[i].scale.setScalar(source.radius);
+    markers[i].rotation.set(t * 1.7, boil * 1.2, t * 1.1 + snap);
   }
 }
 
-function createFieldCages(cageSources) {
+function createFieldCages(cageSources, metaballField) {
   const longitudeCount = 12;
   const latitudeCount = 7;
   const anchors = [];
-  const colors = [];
-  const palette = [
-    new THREE.Color(0xff9abc),
-    new THREE.Color(0x9cf5ff),
-    new THREE.Color(0xffe19a),
-  ];
 
   const pushVertex = (sourceIndex, normal) => {
     anchors.push({ sourceIndex, normal: normal.clone().normalize() });
-    colors.push(palette[sourceIndex % palette.length]);
   };
 
   const pushSegment = (sourceIndex, a, b) => {
@@ -258,100 +295,71 @@ function createFieldCages(cageSources) {
   }
 
   const positions = new Float32Array(anchors.length * 3);
-  const colorValues = new Float32Array(colors.length * 3);
-  colors.forEach((color, index) => {
-    color.toArray(colorValues, index * 3);
+  const normals = new Float32Array(anchors.length * 3);
+  const sourceIndices = new Float32Array(anchors.length);
+  anchors.forEach((anchor, index) => {
+    anchor.normal.toArray(positions, index * 3);
+    anchor.normal.toArray(normals, index * 3);
+    sourceIndices[index] = anchor.sourceIndex;
   });
 
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    "position",
-    new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage)
-  );
-  geometry.setAttribute("color", new THREE.BufferAttribute(colorValues, 3));
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute("anchorNormal", new THREE.BufferAttribute(normals, 3));
+  geometry.setAttribute("sourceIndex", new THREE.BufferAttribute(sourceIndices, 1));
 
-  const material = new THREE.LineBasicMaterial({
-    vertexColors: true,
-    transparent: true,
-    opacity: 0.95,
-    depthTest: false,
-    depthWrite: false,
-  });
+  const material = makeFieldCageMaterial(metaballField);
   const lines = new THREE.LineSegments(geometry, material);
   lines.frustumCulled = false;
 
   return {
     anchors,
     lines,
-    positions,
     smoothing: Number(smoothingSlider.value),
   };
 }
 
-function updateFieldCages(cages) {
-  const p = new THREE.Vector3();
-  const projected = new THREE.Vector3();
-
-  cages.anchors.forEach((anchor, index) => {
-    const source = sources[anchor.sourceIndex];
-    projected
-      .copy(source.position)
-      .addScaledVector(anchor.normal, source.radius);
-
-    projectToMetaballSurface(projected, anchor.normal, cages.smoothing);
-    p.copy(projected);
-    p.toArray(cages.positions, index * 3);
+function makeFieldCageMaterial(metaballField) {
+  const material = new THREE.LineBasicNodeMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.95,
+    depthTest: false,
+    depthWrite: false,
   });
 
-  cages.lines.geometry.attributes.position.needsUpdate = true;
-}
-
-function projectToMetaballSurface(point, fallbackNormal, smoothing) {
-  const normal = projectToMetaballSurface.normal;
-
-  for (let i = 0; i < 5; i++) {
-    const distance = smoothMinDistance(point, smoothing);
-    if (Math.abs(distance) < 0.002) break;
-
-    estimateFieldNormal(point, smoothing, normal);
-    if (normal.lengthSq() < 0.0001) {
-      normal.copy(fallbackNormal);
-    }
-
-    point.addScaledVector(normal.normalize(), -distance);
-  }
-}
-projectToMetaballSurface.normal = new THREE.Vector3();
-
-function smoothMinDistance(point, smoothing) {
-  return smoothMinDistanceAt(point.x, point.y, point.z, smoothing);
-}
-
-function smoothMinDistanceAt(x, y, z, smoothing) {
-  let distance = 20;
-
-  for (const source of sources) {
-    const dx = x - source.position.x;
-    const dy = y - source.position.y;
-    const dz = z - source.position.z;
-    const next = Math.hypot(dx, dy, dz) - source.radius;
-    const h = THREE.MathUtils.clamp((next - distance) / smoothing * 0.5 + 0.5, 0, 1);
-    distance = THREE.MathUtils.lerp(next, distance, h) - h * (1 - h) * smoothing;
-  }
-
-  return distance;
-}
-
-function estimateFieldNormal(point, smoothing, target) {
-  const epsilon = 0.025;
-  return target.set(
-    smoothMinDistanceAt(point.x + epsilon, point.y, point.z, smoothing) -
-      smoothMinDistanceAt(point.x - epsilon, point.y, point.z, smoothing),
-    smoothMinDistanceAt(point.x, point.y + epsilon, point.z, smoothing) -
-      smoothMinDistanceAt(point.x, point.y - epsilon, point.z, smoothing),
-    smoothMinDistanceAt(point.x, point.y, point.z + epsilon, smoothing) -
-      smoothMinDistanceAt(point.x, point.y, point.z - epsilon, smoothing)
+  const sdf = Fn(([p]) =>
+    smoothMinSphereSdf({
+      p,
+      positions: metaballField.positions,
+      radii: metaballField.radii,
+      count: metaballField.count,
+      smoothing: metaballField.smoothingUniform,
+    })
   );
+
+  material.positionNode = Fn(() => {
+    const sourceIndex = int(attribute("sourceIndex", "float"));
+    const anchorNormal = normalize(attribute("anchorNormal", "vec3"));
+    const point = metaballField.positions
+      .element(sourceIndex)
+      .add(anchorNormal.mul(metaballField.radii.element(sourceIndex)))
+      .toVar();
+
+    Loop(5, () => {
+      const distance = sdf(point);
+      const normal = estimateSdfNormal({
+        sdf,
+        p: point,
+        epsilon: 0.025,
+      });
+      point.addAssign(normalize(normal).mul(distance.negate()));
+    });
+
+    return point;
+  })();
+
+  return material;
 }
 
 function resize() {
@@ -383,9 +391,9 @@ function fitBackgroundPlate() {
   floor.scale.set(halfW * 2, halfH * 2, 1);
 }
 
-function makeMarkerMaterial(color) {
+function makeMarkerMaterial() {
   return new THREE.MeshBasicMaterial({
-    color,
+    color: 0xffffff,
     depthTest: false,
     depthWrite: false,
     opacity: 0.5,
@@ -440,11 +448,22 @@ function makeBackgroundTexture(pattern) {
   return texture;
 }
 
+let lastFrameMilliseconds = 0;
+let smoothedFps = 0;
+
 renderer.setAnimationLoop((milliseconds) => {
   const time = milliseconds / 1000;
+  if (lastFrameMilliseconds > 0) {
+    const instantFps = 1000 / Math.max(1, milliseconds - lastFrameMilliseconds);
+    smoothedFps = smoothedFps === 0
+      ? instantFps
+      : THREE.MathUtils.lerp(smoothedFps, instantFps, 0.08);
+    fpsMeter.textContent = `${Math.round(smoothedFps)} fps`;
+  }
+  lastFrameMilliseconds = milliseconds;
+
   controls.update();
   updateSources(time);
-  updateFieldCages(fieldCages);
   markers.forEach((marker) => {
     marker.visible = sourcesToggle.checked;
   });
