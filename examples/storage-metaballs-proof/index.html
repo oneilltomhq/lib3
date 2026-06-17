@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Storage Metaballs Proof</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #08090b;
+        color: #e8edf2;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      #canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+
+      .panel {
+        position: fixed;
+        left: 16px;
+        top: 16px;
+        width: min(360px, calc(100vw - 32px));
+        padding: 14px;
+        background: rgba(8, 10, 13, 0.86);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 8px;
+        box-sizing: border-box;
+      }
+
+      h1 {
+        margin: 0 0 5px;
+        font-size: 16px;
+        font-weight: 650;
+        letter-spacing: 0;
+      }
+
+      p {
+        margin: 0;
+        color: #aeb8c5;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .control {
+        display: grid;
+        gap: 5px;
+        margin-top: 12px;
+      }
+
+      label {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        color: #aeb8c5;
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      select {
+        min-height: 30px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 6px;
+        background: #121820;
+        color: #e8edf2;
+        padding: 0 8px;
+      }
+
+      button {
+        min-height: 30px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 6px;
+        background: #121820;
+        color: #e8edf2;
+        cursor: pointer;
+      }
+
+      button[aria-pressed="true"] {
+        background: #294b67;
+        border-color: #6ca9d1;
+      }
+
+      .readout {
+        margin-top: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <section class="panel">
+      <h1>Storage Metaballs Proof</h1>
+      <p id="status">Booting WebGPU proof.</p>
+      <div class="control">
+        <label for="sourceCount">
+          source count
+          <span id="sourceCountValue">8</span>
+        </label>
+        <select id="sourceCount">
+          <option value="3">3</option>
+          <option value="8" selected>8</option>
+          <option value="16">16</option>
+          <option value="32">32</option>
+          <option value="64">64</option>
+        </select>
+      </div>
+      <div class="row">
+        <button id="markers" type="button" aria-pressed="true">markers</button>
+        <button id="shape" type="button" aria-pressed="true">raymarch</button>
+        <button id="motion" type="button" aria-pressed="true">GPU motion</button>
+        <button id="reset" type="button">reset seed</button>
+      </div>
+      <p class="readout" id="readout">8 moving sources: compute writes same storage buffer used by markers and SDF.</p>
+    </section>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

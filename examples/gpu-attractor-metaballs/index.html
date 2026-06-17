@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GPU Attractor Metaballs</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #08090b;
+        color: #e8edf2;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      #canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+
+      .panel {
+        position: fixed;
+        left: 16px;
+        top: 16px;
+        width: min(340px, calc(100vw - 32px));
+        padding: 14px;
+        background: rgba(8, 10, 13, 0.84);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 8px;
+        backdrop-filter: blur(14px);
+        box-sizing: border-box;
+      }
+
+      h1 {
+        margin: 0 0 4px;
+        font-size: 16px;
+        font-weight: 650;
+        letter-spacing: 0;
+      }
+
+      .status {
+        margin: 0 0 12px;
+        color: #aeb8c5;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .grid {
+        display: grid;
+        gap: 9px;
+      }
+
+      label {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px 10px;
+        align-items: center;
+        font-size: 12px;
+        color: #d7dee7;
+      }
+
+      input[type="range"],
+      select {
+        grid-column: 1 / -1;
+        width: 100%;
+      }
+
+      select,
+      button {
+        min-height: 30px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        border-radius: 6px;
+        background: #121820;
+        color: #e8edf2;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      button[aria-pressed="true"] {
+        background: #294b67;
+        border-color: #6ca9d1;
+      }
+
+      .readout {
+        margin-top: 10px;
+        color: #aeb8c5;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <section class="panel">
+      <h1>GPU Attractor Metaballs</h1>
+      <p class="status" id="status">WebGPU storage-buffer SDF proof lab.</p>
+      <div class="grid">
+        <label>
+          source count
+          <span id="sourceCountValue">16</span>
+          <select id="sourceCount">
+            <option value="8">8</option>
+            <option value="16" selected>16</option>
+            <option value="32">32</option>
+            <option value="48">48</option>
+            <option value="64">64</option>
+          </select>
+        </label>
+        <label>
+          attractor mass
+          <span id="massValue">1e7</span>
+          <input id="mass" type="range" min="4" max="9" step="1" value="7" />
+        </label>
+        <label>
+          spin
+          <span id="spinValue">2.75</span>
+          <input id="spin" type="range" min="0" max="8" step="0.05" value="2.75" />
+        </label>
+        <label>
+          damping
+          <span id="dampingValue">0.080</span>
+          <input id="damping" type="range" min="0" max="0.16" step="0.002" value="0.08" />
+        </label>
+        <label>
+          max speed
+          <span id="speedValue">7.0</span>
+          <input id="speed" type="range" min="0.5" max="14" step="0.1" value="7" />
+        </label>
+        <label>
+          smoothing
+          <span id="smoothingValue">0.05</span>
+          <input id="smoothing" type="range" min="0.01" max="0.25" step="0.01" value="0.05" />
+        </label>
+        <div class="row">
+          <button id="markers" type="button" aria-pressed="false">markers</button>
+          <button id="reset" type="button">reset seed</button>
+        </div>
+      </div>
+      <div class="readout" id="readout">Compute pending.</div>
+    </section>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
