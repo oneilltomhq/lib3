@@ -59,6 +59,7 @@
     "vite-plugin-dts": "^4.5.4"
   },
   "dependencies": {
+    "animejs": "^4.2.2",
     "three": "github:mrdoob/three.js"
   },
   "peerDependencies": {
