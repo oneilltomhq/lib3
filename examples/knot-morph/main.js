@@ -1,25 +1,11 @@
 // examples/knot-morph/main.js
-import * as THREE from "three/webgpu";
+import { setup } from "../_shared/setup.js";
 import { color } from "three/tsl";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { knotMorphPosition } from "../../src/knotMorph.js"; // Import from dedicated module
 
 // Set up scene, camera, renderer
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(
-  75,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  1000
-);
+const { THREE, renderer, scene, camera, loop } = setup({ fov: 75 });
 camera.position.z = 5; // Adjusted for better view of knot scale
-
-const canvas = document.getElementById("canvas");
-const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-
-// Controls for interaction
-new OrbitControls(camera, renderer.domElement);
 
 // Create starting geometry (p=2, q=3 for trefoil knot)
 const startGeo = new THREE.TorusKnotGeometry(1, 0.4, 128, 32, 2, 3);
@@ -45,21 +31,17 @@ material.colorNode = color(0x00ff00);
 const mesh = new THREE.Mesh(startGeo, material);
 scene.add(mesh);
 
-// Animation loop
-let time = 0;
-function animate() {
-  requestAnimationFrame(animate);
-  time += 0.01;
-
+// Start animation loop
+loop((t) => {
   // Ping-pong mix factor for looping morph (0 to 1 and back)
-  const mixFactor = Math.abs(Math.sin(time * 0.5));
+  const mixFactor = Math.abs(Math.sin(t * 0.5));
   material.positionNode = knotMorphPosition({ mixFactor });
 
   // Dynamic rotation (ported from original)
   const quaternion = new THREE.Quaternion();
 
-  const slowTime = time * 0.3;
-  const fastTime = time * 1.2;
+  const slowTime = t * 0.3;
+  const fastTime = t * 1.2;
 
   // Y-axis rotation
   const ySpeedMultiplier = Math.sin(slowTime) * Math.sin(slowTime * 0.7);
@@ -92,18 +74,4 @@ function animate() {
   // Combine and apply rotations
   quaternion.multiply(yQuat).multiply(xQuat).multiply(zQuat);
   mesh.quaternion.multiply(quaternion);
-
-  renderer.render(scene, camera);
-}
-
-// Initialize renderer and start animation
-renderer.init().then(() => {
-  animate();
-});
-
-// Handle resize
-window.addEventListener("resize", () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
 });

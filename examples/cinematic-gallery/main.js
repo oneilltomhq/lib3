@@ -1,5 +1,5 @@
+import { setup } from "../_shared/setup.js";
 import headURL from "@assets/head256x256x109.zip?url";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { unzipSync } from "three/addons/libs/fflate.module.js";
 import { texture3D, uniform, pass, color, screenUV } from "three/tsl";
 import { knotMorphPosition } from "../../src/knotMorph.js";
@@ -7,7 +7,6 @@ import {
   buildSphericalWaveCopyKernel,
   averageIntensityProjection,
 } from "../../src/index.js";
-import * as THREE from "three/webgpu";
 
 // Choose cinematic aspect based on viewport orientation: 16:9 (landscape) or 9:16 (portrait)
 function getCinematicAspect(w, h) {
@@ -16,14 +15,11 @@ function getCinematicAspect(w, h) {
 let childAspect = getCinematicAspect(window.innerWidth, window.innerHeight);
 
 // Parent (main) scene and camera
-const parentScene = new THREE.Scene();
-const parentCamera = new THREE.PerspectiveCamera(
-  60,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  1000
-);
+const { THREE, renderer, camera: parentCamera, controls } = setup({ fov: 60 });
 parentCamera.position.set(0, 1.25, 2.5);
+controls.update();
+
+const parentScene = new THREE.Scene();
 
 // Child A (offscreen) scene and camera - Raymarch Head
 const childScene = new THREE.Scene();
@@ -37,15 +33,7 @@ const childCamera2 = new THREE.PerspectiveCamera(60, childAspect, 0.05, 1000);
 childCamera2.position.set(0, 0, 5);
 childCamera2.updateProjectionMatrix();
 
-// Renderer
-const renderer = new THREE.WebGPURenderer({
-  canvas: document.getElementById("canvas"),
-});
-renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0x000000);
-
-// Parent controls (user controls)
-const controls = new OrbitControls(parentCamera, renderer.domElement);
 controls.target.set(0, 1.0, 0);
 controls.update();
 
@@ -469,11 +457,6 @@ new THREE.FileLoader()
       childCamera2.lookAt(0, 0, 0);
     }
 
-    // Resize handling for renderer and parent camera, then update layout
-    window.addEventListener("resize", () => {
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      parentCamera.aspect = window.innerWidth / window.innerHeight;
-      parentCamera.updateProjectionMatrix();
-      updateLayout();
-    });
+    // Additional resize handling for layout updates
+    window.addEventListener("resize", updateLayout);
   });

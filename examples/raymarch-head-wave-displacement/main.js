@@ -1,5 +1,5 @@
+import { setup } from "../_shared/setup.js";
 import headURL from "@assets/head256x256x109.zip?url";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Inspector } from "three/addons/inspector/Inspector.js";
 import { unzipSync } from "three/addons/libs/fflate.module.js";
 import { texture3D, uniform } from "three/tsl";
@@ -7,23 +7,11 @@ import {
   buildSphericalWaveCopyKernel,
   averageIntensityProjection,
 } from "../../src/index.js";
-import * as THREE from "three/webgpu";
 
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(
-  75,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  1000
-);
+const { THREE, renderer, scene, camera } = setup({ fov: 75 });
 camera.position.z = 1;
-const renderer = new THREE.WebGPURenderer({
-  canvas: document.getElementById("canvas"),
-});
-renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0x000000);
 renderer.inspector = new Inspector();
-new OrbitControls(camera, renderer.domElement);
 
 new THREE.FileLoader()
   .setResponseType("arraybuffer")

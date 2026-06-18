@@ -1,4 +1,4 @@
-import * as THREE from "three/webgpu";
+import { setup } from "../_shared/setup.js";
 import {
   Fn,
   vec3,
@@ -16,7 +16,6 @@ import {
   shapeCircle,
   positionWorld,
 } from "three/tsl";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Inspector } from "three/addons/inspector/Inspector.js";
 import { ImprovedNoise } from "three/addons/math/ImprovedNoise.js";
 import { bayer16 } from "three/addons/tsl/math/Bayer.js";
@@ -25,35 +24,20 @@ import { gaussianBlur } from "three/addons/tsl/display/GaussianBlurNode.js";
 // === Constants ===
 const LAYER_VOLUMETRIC = 10;
 
-// === Renderer Setup ===
-const canvas = document.getElementById("canvas");
-const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(window.devicePixelRatio);
+// === Renderer / Scene / Camera Setup ===
+const { THREE, renderer, scene, camera, controls } = setup({ fov: 60 });
+camera.position.set(8, 6, 12);
+controls.target.set(0, 3, 0);
+controls.maxDistance = 40;
+controls.minDistance = 2;
+controls.update();
+
 renderer.toneMapping = THREE.NeutralToneMapping;
 renderer.toneMappingExposure = 1.2;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.inspector = new Inspector();
-
-// === Scene Setup ===
-const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0a0a);
-
-// === Camera Setup ===
-const camera = new THREE.PerspectiveCamera(
-  60,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  200
-);
-camera.position.set(8, 6, 12);
-
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 3, 0);
-controls.maxDistance = 40;
-controls.minDistance = 2;
-controls.update();
 
 // === Room Environment ===
 // Floor
@@ -596,7 +580,7 @@ sceneFolder.addColor(sceneParams, "backgroundColor").onChange((value) => {
 sceneFolder.add(sceneParams, "resetCamera").name("reset camera");
 
 // === Animation Loop ===
-function animate() {
+renderer.setAnimationLoop(() => {
   // Animate objects slightly
   torusKnot.rotation.y += 0.005;
   torusKnot.rotation.x += 0.002;
@@ -610,13 +594,4 @@ function animate() {
 
   // Render
   postProcessing.render();
-}
-
-renderer.setAnimationLoop(animate);
-
-// === Window Resize ===
-window.addEventListener("resize", () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
 });

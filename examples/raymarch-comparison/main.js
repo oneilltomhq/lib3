@@ -1,24 +1,12 @@
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { setup } from "../_shared/setup.js";
 import { Inspector } from "three/addons/inspector/Inspector.js";
 import { RaymarchingBox } from "three/addons/tsl/utils/Raymarching.js";
 import { select, float, Fn, vec3, If, vec2, uniform } from "three/tsl";
-import * as THREE from "three/webgpu";
 import { adaptiveRaymarch } from "../../src/raymarch.js";
 
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(
-  75,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  1000
-);
+const { THREE, renderer, scene, camera } = setup({ fov: 75 });
 camera.position.z = 3;
-const renderer = new THREE.WebGPURenderer({
-  canvas: document.getElementById("canvas"),
-});
-renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.inspector = new Inspector();
-new OrbitControls(camera, renderer.domElement);
 
 // Torus SDF (thin ring shape to show precision differences)
 const torusSDF = Fn(({ pos }) => {
@@ -79,8 +67,7 @@ const fixedFolder = gui.addFolder("Fixed (Right - Green)");
 fixedFolder.add(fixedMaxSteps, "value", 1, 100, 1).name("maxSteps");
 fixedFolder.add(fixedThreshold, "value", 0.001, 0.1, 0.001).name("threshold");
 
-async function animate() {
-  requestAnimationFrame(animate);
+// Start animation loop (use async renderAsync instead of sync render)
+renderer.setAnimationLoop(async () => {
   await renderer.renderAsync(scene, camera);
-}
-animate();
+});

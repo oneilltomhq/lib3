@@ -1,26 +1,14 @@
+import { setup } from "../_shared/setup.js";
 import headURL from "@assets/head256x256x109.zip?url";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Inspector } from "three/addons/inspector/Inspector.js";
 import { unzipSync } from "three/addons/libs/fflate.module.js";
 import { RaymarchingBox } from "three/addons/tsl/utils/Raymarching.js";
 import { Fn, texture3D, uniform, vec3, vec4, float } from "three/tsl";
-import * as THREE from "three/webgpu";
 
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(
-  75,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  1000
-);
+const { THREE, renderer, scene, camera, loop } = setup({ fov: 75 });
 camera.position.z = 3;
-const renderer = new THREE.WebGPURenderer({
-  canvas: document.getElementById("canvas"),
-});
-renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0x000000);
 renderer.inspector = new Inspector();
-new OrbitControls(camera, renderer.domElement);
 new THREE.FileLoader()
   .setResponseType("arraybuffer")
   .load(headURL, function (data) {
@@ -87,8 +75,6 @@ new THREE.FileLoader()
     gui.add(steps, "value", 1, 150, 1).name("steps");
     gui.add(intensityScale, "value", 0.1, 5.0, 0.1).name("intensityScale");
 
-    function animate() {
-      renderer.render(scene, camera);
-    }
-    renderer.setAnimationLoop(animate);
+    // Start animation loop
+    loop();
   });

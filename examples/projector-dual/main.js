@@ -1,9 +1,9 @@
+import { setup } from "../_shared/setup.js";
 import atlasURL from "@videos/atlas-demo-3x.mp4";
 import buildxURL from "@videos/buildx-demo-5x.mp4";
 import diffuseURL from "@textures/plastered_stone_wall_diff_4k.jpg?url";
 import normalURL from "@textures/plastered_stone_wall_nor_gl_4k.exr?url";
 import roughnessURL from "@textures/plastered_stone_wall_rough_4k.exr?url";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { Inspector } from "three/addons/inspector/Inspector.js";
 import { EXRLoader } from "three/addons/loaders/EXRLoader.js";
@@ -27,34 +27,20 @@ import {
   vec3,
   vec4,
 } from "three/tsl";
-import * as THREE from "three/webgpu";
 
 // Phase 1: No passes/compute/morphs
 
 // --- Renderer / Scene / Camera ---
-const canvas = document.getElementById("canvas");
-const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(window.devicePixelRatio);
+const { THREE, renderer, scene, camera, controls } = setup({ fov: 50 });
+camera.position.set(6, 3, 10);
+controls.target.set(0, 2, 0);
+controls.update();
+
 renderer.toneMapping = THREE.NeutralToneMapping;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.inspector = new Inspector();
-
-const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0);
-
-const camera = new THREE.PerspectiveCamera(
-  50,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  100
-);
-camera.position.set(6, 3, 10);
-
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 2, 0);
-controls.update();
 
 // --- Ground + Wall ---
 const floorMat = new THREE.MeshStandardNodeMaterial({ color: 0x111111 });
@@ -543,13 +529,6 @@ volFolder.add(volumetricIntensity, "value", 0, 5).name("intensity");
 volFolder.add(densityScale, "value", 0, 2, 0.01).name("density scale");
 volFolder.add(threshold, "value", 0, 1, 0.01).name("threshold");
 volFolder.add(range, "value", 0, 1, 0.01).name("range");
-
-// --- Resize ---
-window.addEventListener("resize", () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
 
 // --- Initialize renderer and start animation ---
 async function startAnimation() {

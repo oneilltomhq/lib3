@@ -1,4 +1,4 @@
-import * as THREE from "three/webgpu";
+import { setup } from "../_shared/setup.js";
 import {
   abs,
   negate,
@@ -20,7 +20,6 @@ import {
   exp,
   float,
 } from "three/tsl";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Inspector } from "three/addons/inspector/Inspector.js";
 import { ImprovedNoise } from "three/addons/math/ImprovedNoise.js";
 import { bayer16 } from "three/addons/tsl/math/Bayer.js";
@@ -30,31 +29,18 @@ import { gaussianBlur } from "three/addons/tsl/display/GaussianBlurNode.js";
 const LAYER_VOLUMETRIC = 10;
 
 // === Renderer / Scene / Camera Setup ===
-const canvas = document.getElementById("canvas");
-const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(window.devicePixelRatio);
-renderer.toneMapping = THREE.NeutralToneMapping;
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.inspector = new Inspector();
-
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0a0a);
-
-const camera = new THREE.PerspectiveCamera(
-  60,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  200
-);
+const { THREE, renderer, scene, camera, controls } = setup({ fov: 60 });
 camera.position.set(8, 6, 12);
-
-const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 3, 0);
 controls.maxDistance = 40;
 controls.minDistance = 2;
 controls.update();
+
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.inspector = new Inspector();
+scene.background = new THREE.Color(0x0a0a0a);
 
 // === Environment Setup ===
 const floorGeometry = new THREE.PlaneGeometry(30, 30);
@@ -382,7 +368,7 @@ projectorFolder
   });
 
 // === Animation Loop ===
-function animate() {
+renderer.setAnimationLoop(() => {
   // Update projector uniforms
   proj.projector.getWorldPosition(projectorPosition.value);
   new THREE.Vector3(0, 0, -1)
@@ -395,13 +381,4 @@ function animate() {
 
   // Render
   postProcessing.render();
-}
-
-renderer.setAnimationLoop(animate);
-
-// === Window Resize ===
-window.addEventListener("resize", () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
 });

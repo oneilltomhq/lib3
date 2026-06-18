@@ -1,10 +1,16 @@
-import * as THREE from "three/webgpu";
+import { setup } from "../_shared/setup.js";
 import { pass, uniform, mix, Fn } from "three/tsl";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 // ============================================================================
 // Scene Setup
 // ============================================================================
+
+const { THREE, renderer, camera: mainCamera, controls } = setup({ fov: 60 });
+mainCamera.position.set(0, 1.5, 5);
+controls.target.set(0, 1, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.update();
 
 // Main gallery scene
 const mainScene = new THREE.Scene();
@@ -18,16 +24,8 @@ const portalSceneB = new THREE.Scene();
 portalSceneB.background = new THREE.Color(0x001133); // Cool
 
 // ============================================================================
-// Cameras
+// Additional Cameras for Portals
 // ============================================================================
-
-const mainCamera = new THREE.PerspectiveCamera(
-  60,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  100
-);
-mainCamera.position.set(0, 1.5, 5);
 
 const portalCameraA = new THREE.PerspectiveCamera(
   60,
@@ -46,33 +44,16 @@ const portalCameraB = new THREE.PerspectiveCamera(
 portalCameraB.position.set(0, 2, 5);
 
 // ============================================================================
-// Renderer
+// Additional Controls for Portals
 // ============================================================================
 
-const renderer = new THREE.WebGPURenderer({
-  canvas: document.getElementById("canvas"),
-  antialias: true,
-});
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(window.devicePixelRatio);
-
-// ============================================================================
-// Controls
-// ============================================================================
-
-const controls = new OrbitControls(mainCamera, renderer.domElement);
-controls.target.set(0, 1, 0);
-controls.enableDamping = true;
-controls.dampingFactor = 0.05;
-controls.update();
-
-const controlsA = new OrbitControls(portalCameraA, renderer.domElement);
+const controlsA = new THREE.OrbitControls(portalCameraA, renderer.domElement);
 controlsA.target.set(0, 0, 0);
 controlsA.enableDamping = true;
 controlsA.dampingFactor = 0.05;
 controlsA.enabled = false; // Start disabled
 
-const controlsB = new OrbitControls(portalCameraB, renderer.domElement);
+const controlsB = new THREE.OrbitControls(portalCameraB, renderer.domElement);
 controlsB.target.set(0, 0, 0);
 controlsB.enableDamping = true;
 controlsB.dampingFactor = 0.05;
@@ -468,22 +449,13 @@ renderer.setAnimationLoop(() => {
 });
 
 // ============================================================================
-// Window Resize Handler
+// Additional Resize Handler for Portal Cameras
 // ============================================================================
 
 window.addEventListener("resize", () => {
-  const width = window.innerWidth;
-  const height = window.innerHeight;
-  const aspect = width / height;
-
-  mainCamera.aspect = aspect;
-  mainCamera.updateProjectionMatrix();
-
+  const aspect = window.innerWidth / window.innerHeight;
   portalCameraA.aspect = aspect;
   portalCameraA.updateProjectionMatrix();
-
   portalCameraB.aspect = aspect;
   portalCameraB.updateProjectionMatrix();
-
-  renderer.setSize(width, height);
 });

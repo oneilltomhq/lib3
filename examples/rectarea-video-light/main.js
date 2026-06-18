@@ -1,48 +1,27 @@
-import * as THREE from "three/webgpu";
+import { setup } from "../_shared/setup.js";
 import { texture, uniform, sin, time, uv, vec3, Fn } from "three/tsl";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RectAreaLightTexturesLib } from "three/addons/lights/RectAreaLightTexturesLib.js";
 
-let renderer, scene, camera, controls;
 let rectLight1, rectLight2;
 let videoTexture, canvas2d, ctx;
 
 init();
 
 async function init() {
-  // Initialize WebGPU Renderer
-  renderer = new THREE.WebGPURenderer({
-    antialias: true,
-    canvas: document.getElementById("canvas"),
-  });
-  renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  const { THREE, renderer, scene, camera, controls } = setup({ fov: 60 });
+  camera.position.set(0, 3, 8);
+  controls.target.set(0, 1, 0);
+  controls.update();
+
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.2;
+  scene.background = new THREE.Color(0x111111);
 
   // Initialize WebGPU backend
   await renderer.init();
 
   // Initialize RectAreaLight textures for WebGPU
   THREE.RectAreaLightNode.setLTC(RectAreaLightTexturesLib.init());
-
-  // Scene setup
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x111111);
-
-  // Camera setup
-  camera = new THREE.PerspectiveCamera(
-    60,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    100
-  );
-  camera.position.set(0, 3, 8);
-
-  // Controls
-  controls = new OrbitControls(camera, renderer.domElement);
-  controls.target.set(0, 1, 0);
-  controls.update();
 
   // Create a procedural video texture using canvas
   createProceduralVideoTexture();
@@ -151,11 +130,22 @@ async function init() {
   wall.position.set(0, 5, -5);
   scene.add(wall);
 
-  // Handle window resize
-  window.addEventListener("resize", onWindowResize);
-
   // Start animation loop after renderer is initialized
   animate();
+
+  function animate() {
+    requestAnimationFrame(animate);
+
+    // Update procedural texture
+    updateProceduralTexture();
+
+    // Rotate lights slightly
+    rectLight1.rotation.y = Math.sin(performance.now() * 0.0005) * 0.3;
+    rectLight2.rotation.y = Math.cos(performance.now() * 0.0003) * 0.3;
+
+    controls.update();
+    renderer.render(scene, camera);
+  }
 }
 
 function createProceduralVideoTexture() {
@@ -206,24 +196,4 @@ function updateProceduralTexture() {
 
   ctx.putImageData(imageData, 0, 0);
   videoTexture.needsUpdate = true;
-}
-
-function onWindowResize() {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-}
-
-function animate() {
-  requestAnimationFrame(animate);
-
-  // Update procedural texture
-  updateProceduralTexture();
-
-  // Rotate lights slightly
-  rectLight1.rotation.y = Math.sin(performance.now() * 0.0005) * 0.3;
-  rectLight2.rotation.y = Math.cos(performance.now() * 0.0003) * 0.3;
-
-  controls.update();
-  renderer.render(scene, camera);
 }

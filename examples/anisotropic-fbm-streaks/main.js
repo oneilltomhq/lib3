@@ -1,4 +1,4 @@
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { setup } from "../_shared/setup.js";
 import { Inspector } from "three/addons/inspector/Inspector.js";
 import {
   Fn,
@@ -13,28 +13,13 @@ import {
   vec3,
   vec4,
 } from "three/tsl";
-import * as THREE from "three/webgpu";
 import { simplexNoise3 } from "../../src/index.js";
 
 // Scene setup
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(
-  60,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  1000
-);
+const { THREE, renderer, scene, camera, loop } = setup({ fov: 60 });
 camera.position.set(0, 0, 2.2);
-
-const renderer = new THREE.WebGPURenderer({
-  canvas: document.getElementById("canvas"),
-  antialias: true,
-});
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setClearColor(0x000000);
 renderer.inspector = new Inspector();
-new OrbitControls(camera, renderer.domElement);
 
 // Controls - define uniforms outside the shader function so Inspector can access them
 const scaleX = uniform(0.25);
@@ -123,13 +108,4 @@ gui.add(fbmLacunarity, "value", 0.1, 4.0, 0.1).name("fbmLacunarity");
 gui.add(fbmGain, "value", 0.25, 1.0, 0.01).name("fbmGain");
 gui.add(animate, "value", 0, 1, 1).name("animate");
 
-function onResize() {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-}
-window.addEventListener("resize", onResize);
-
-renderer.setAnimationLoop(() => {
-  renderer.render(scene, camera);
-});
+loop();
