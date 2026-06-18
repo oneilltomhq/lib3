@@ -24,35 +24,45 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.enablePan = false;
 
-const batched = new BatchedText(128, 1, undefined, {
+const message =
+  "lib3 sdf-text: whole-string layout + batched glyph instancing";
+
+const batched = new BatchedText(8, 256, undefined, {
   fontFamily: "ui-monospace, monospace",
   outlineWidth: 0.035,
 });
 scene.add(batched);
 
-const palette = [0x7dd3fc, 0xf472b6, 0xfbbf24, 0xa78bfa, 0x34d399];
-const texts = [];
-const message =
-  "lib3 sdf-text: CPU atlas + GPU TSL instancing — add glyphs live!";
+const headline = new Text();
+headline.text = message;
+headline.fontSize = 0.14;
+headline.anchorX = "center";
+headline.anchorY = "middle";
+headline.color.set(0x7dd3fc);
+headline.position.set(0, 0.4, 0);
+scene.add(headline);
+batched.addText(headline);
 
-for (let i = 0; i < message.length; i++) {
+const palette = [0xf472b6, 0xfbbf24, 0xa78bfa, 0x34d399];
+const subtitles = [];
+for (let i = 0; i < 4; i++) {
   const t = new Text();
-  t.text = message[i];
-  t.fontSize = 0.55;
-  t.color.set(palette[i % palette.length]);
-  t.position.set((i - message.length / 2) * 0.38, 0, 0);
-  t.scale.setScalar(t.fontSize);
+  t.text = `label ${i + 1}`;
+  t.fontSize = 0.14;
+  t.anchorX = "center";
+  t.color.set(palette[i]);
+  t.position.set((i - 1.5) * 1.6, -0.8, 0);
   scene.add(t);
   batched.addText(t);
-  texts.push(t);
+  subtitles.push(t);
 }
 
 const ticker = new Text();
 ticker.text = "A";
-ticker.fontSize = 0.9;
+ticker.fontSize = 0.2;
+ticker.anchorX = "center";
 ticker.color.set(0xffffff);
 ticker.position.set(0, -1.4, 0);
-ticker.scale.setScalar(ticker.fontSize);
 scene.add(ticker);
 batched.addText(ticker);
 
@@ -73,10 +83,10 @@ async function animate() {
   requestAnimationFrame(animate);
 
   const t = performance.now() * 0.001;
-  for (let i = 0; i < texts.length; i++) {
-    texts[i].position.y = Math.sin(t * 1.4 + i * 0.35) * 0.12;
-    texts[i].rotation.z = Math.sin(t * 0.8 + i) * 0.08;
-    texts[i].updateMatrixWorld();
+  for (let i = 0; i < subtitles.length; i++) {
+    subtitles[i].position.y = -0.8 + Math.sin(t * 1.4 + i * 0.35) * 0.12;
+    subtitles[i].updateMatrixWorld();
+    batched.setMatrixAt(i + 1, subtitles[i].matrixWorld);
   }
 
   tick++;
@@ -93,4 +103,5 @@ async function animate() {
 }
 
 await renderer.init();
+batched.sync();
 animate();

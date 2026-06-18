@@ -142,3 +142,29 @@ describe("Layer 4: Shader math simulation", () => {
     assert.equal(alpha, 0);
   });
 });
+
+describe("Layer 5: Text layout", () => {
+  it("layoutText produces one glyph per character", async () => {
+    const { layoutText } = await import("../src/sdf-text/TextBuilder.js");
+    const info = layoutText({ text: "Hi!", fontSize: 1 });
+    assert.equal(info.glyphCount, 3);
+    assert.equal(info.glyphs.length, 3);
+    assert.equal(info.glyphs[0].char, "H");
+    assert.equal(info.glyphs[2].char, "!");
+  });
+
+  it("layoutText handles newlines as extra lines", async () => {
+    const { layoutText } = await import("../src/sdf-text/TextBuilder.js");
+    const info = layoutText({ text: "ab\ncd", fontSize: 1 });
+    assert.equal(info.glyphCount, 4);
+  });
+
+  it("anchorX center shifts block bounds symmetrically", async () => {
+    const { layoutText } = await import("../src/sdf-text/TextBuilder.js");
+    const left = layoutText({ text: "ABC", fontSize: 1, anchorX: "left" });
+    const center = layoutText({ text: "ABC", fontSize: 1, anchorX: "center" });
+    const leftMid = (left.blockBounds[0] + left.blockBounds[2]) * 0.5;
+    const centerMid = (center.blockBounds[0] + center.blockBounds[2]) * 0.5;
+    assert.ok(Math.abs(centerMid) < Math.abs(leftMid));
+  });
+});

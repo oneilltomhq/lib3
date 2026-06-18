@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>SDF Text Chat</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; }
+      body {
+        font: 14px system-ui, sans-serif;
+        background: #0b0d12;
+        color: #e8ecf4;
+        overflow: hidden;
+      }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #hud {
+        position: fixed;
+        left: 1rem;
+        top: 1rem;
+        max-width: 24rem;
+        padding: 0.75rem 1rem;
+        background: rgba(8, 10, 16, 0.82);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        line-height: 1.45;
+      }
+      #hud h1 { font-size: 1rem; margin-bottom: 0.35rem; }
+      #hud p { opacity: 0.8; font-size: 0.85rem; margin-top: 0.35rem; }
+      #hud dl {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 0.15rem 0.75rem;
+        margin-top: 0.5rem;
+        font-size: 0.85rem;
+      }
+      #hud dt { opacity: 0.65; }
+      #hud dd { font-variant-numeric: tabular-nums; color: #7dd3fc; margin: 0; }
+      code { font-size: 0.8em; }
+    </style>
+    <script type="module" src="./main.js"></script>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <div id="hud">
+      <h1>SDF Text Chat</h1>
+      <p>
+        Simulated chatroom: message pool + throttled <code>sync()</code>.
+        Scroll uses <code>setMatrixAt</code> only.
+      </p>
+      <dl>
+        <dt>Atlas glyphs</dt>
+        <dd id="atlasGlyphs">0</dd>
+        <dt>Sync calls</dt>
+        <dd id="syncCount">0</dd>
+        <dt>Pending dirty</dt>
+        <dd id="pendingDirty">no</dd>
+        <dt>Pool slots</dt>
+        <dd id="poolSlots">0</dd>
+      </dl>
+    </div>
+  </body>
+</html>

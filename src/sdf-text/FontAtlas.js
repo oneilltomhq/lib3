@@ -79,6 +79,34 @@ export class FontAtlas {
     ctx.fillText(char, GLYPH_SIZE / 2, GLYPH_SIZE / 2);
 
     const imgData = ctx.getImageData(0, 0, GLYPH_SIZE, GLYPH_SIZE);
+    let inkMinX = GLYPH_SIZE;
+    let inkMinY = GLYPH_SIZE;
+    let inkMaxX = 0;
+    let inkMaxY = 0;
+
+    const pixels = imgData.data;
+    for (let y = 0; y < GLYPH_SIZE; y++) {
+      for (let x = 0; x < GLYPH_SIZE; x++) {
+        const a = pixels[(y * GLYPH_SIZE + x) * 4 + 3];
+        if (a > 8) {
+          inkMinX = Math.min(inkMinX, x);
+          inkMinY = Math.min(inkMinY, y);
+          inkMaxX = Math.max(inkMaxX, x);
+          inkMaxY = Math.max(inkMaxY, y);
+        }
+      }
+    }
+
+    const hasInk = inkMaxX >= inkMinX;
+    const viewBox = hasInk
+      ? [
+          inkMinX / GLYPH_SIZE,
+          inkMinY / GLYPH_SIZE,
+          (inkMaxX + 1) / GLYPH_SIZE,
+          (inkMaxY + 1) / GLYPH_SIZE,
+        ]
+      : [0, 0, 0, 0];
+
     const sdfHiRes = computeSDF(imgData.data, GLYPH_SIZE, GLYPH_SIZE);
 
     const scaleX = GLYPH_SIZE / SDF_SIZE;
@@ -104,6 +132,7 @@ export class FontAtlas {
       v: (row * SDF_SIZE) / atlasW,
       w: SDF_SIZE / atlasW,
       h: SDF_SIZE / atlasW,
+      viewBox,
     };
   }
 }

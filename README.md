@@ -305,29 +305,33 @@ Rasterizes glyphs via `OffscreenCanvas`, runs `computeSDF`, uploads a
 
 #### `Text`
 
-Lightweight `Object3D` holder: `text`, `fontSize`, `color`.
+Layout member with `text`, `fontSize`, `anchorX`/`anchorY`, `letterSpacing`,
+and `sync()`. Assign a full string — layout expands to per-glyph bounds
+(clean-room counterpart to `@three-blocks/core` Text layout API).
 
 #### `BatchedText`
 
-Instanced mesh renderer. Call `addText(text)`, then `sync()` each frame to
-upload matrices and glyph UV rects.
+Instanced mesh renderer. Each `addText(text)` member expands to N glyph quads
+on `sync()`. Use `setMatrixAt(memberId, matrix)` for position-only updates.
 
 ```javascript
 import { BatchedText, Text } from "@oneilltom/lib3/sdf-text";
 
-const batched = new BatchedText(64, 1, undefined, { outlineWidth: 0.03 });
+const batched = new BatchedText(64, 1024, undefined, { outlineWidth: 0.03 });
 scene.add(batched);
 
 const label = new Text();
-label.text = "Hi";
+label.text = "Hello World";
 label.fontSize = 1;
-label.scale.setScalar(1);
+label.anchorX = "center";
+label.anchorY = "middle";
 scene.add(label);
 batched.addText(label);
 
 function animate() {
   label.updateMatrixWorld();
-  batched.sync();
+  batched.setMatrixAt(0, label.matrixWorld);
+  batched.sync(); // only required when text content changes
   renderer.render(scene, camera);
 }
 ```
@@ -341,6 +345,7 @@ The package includes 13+ examples demonstrating various techniques:
 - **raymarch-head** - 3D medical data visualization
 - **metaballs-lab** - Raymarched smooth-min globules
 - **sdf-text-lab** - CPU atlas + GPU instanced SDF text
+- **sdf-text-chat** - Chatroom-style message pool with throttled `sync()`
 - **metaballs-explainer** - Step-by-step SDF and raymarching walkthrough
 - **raymarch-head-wave-displacement** - Volumetric waves
 - **portal-door-transition** - Portal effects

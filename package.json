@@ -1,6 +1,6 @@
 {
   "name": "@oneilltom/lib3",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Composable TSL nodes and utilities for Three.js/WebGPU (waves, morphs, metaballs, sdf-text).",
   "type": "module",
   "sideEffects": false,
@@ -31,7 +31,7 @@
   },
   "publishConfig": {
     "access": "public",
-    "tag": "next"
+    "tag": "latest"
   },
   "scripts": {
     "build": "vite build",
