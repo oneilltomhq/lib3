@@ -39,4 +39,5 @@ export {
   beamSampleT,
   LISSAJOUS_DEFAULTS,
   LISSAJOUS_PRESETS,
+  LISSAJOUS_JOURNEY,
 } from './lissajous.js';

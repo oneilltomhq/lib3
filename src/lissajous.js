@@ -138,3 +138,20 @@ export const LISSAJOUS_PRESETS = {
   helix:          { freqX: 60, freqY: 60, freqZ: 12, phaseX: 1.5708, detuneZ: 0.0, ampZ: 0.9 },
   "sphere knot":  { freqX: 60, freqY: 80, freqZ: 100, detuneY: 0.05, ampZ: 0.8 },
 };
+
+// A default "demo reel": an ordered tour of sweet spots, chosen so each
+// transition shows off a *different kind* of move rather than random hopping.
+// `hold` = seconds parked at the stop; `transition` = seconds to glide into it
+// from the previous one (the figure is interpolated parameter-by-parameter, so
+// e.g. a frequency change writhes through the in-between ratios before locking).
+// A stop may reference a preset by name, or carry its own `values` (what the
+// lab's capture button records). Each stop is resolved against the defaults, so
+// it's a complete configuration regardless of how few fields the preset names.
+export const LISSAJOUS_JOURNEY = [
+  { preset: "circle",       hold: 3.0, transition: 0.0 }, // arrive on a clean ellipse
+  { preset: "detuned spin", hold: 2.0, transition: 4.0 }, // detune unlocks it -> slow precession
+  { preset: "3:4",          hold: 3.0, transition: 3.5 }, // writhe through ratios, re-lock to 3:4
+  { preset: "ring texture", hold: 2.5, transition: 3.0 }, // ring-mod blooms surface texture
+  { preset: "sphere knot",  hold: 3.0, transition: 4.5 }, // ampZ lifts the flat figure into 3D
+  { preset: "helix",        hold: 3.0, transition: 3.5 }, // settle into a turning 3D coil
+];
