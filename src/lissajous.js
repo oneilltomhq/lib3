@@ -71,30 +71,35 @@ export const lissajousAt = /*@__PURE__*/ Fn(({
 // which a GPU vertex can't see — so we recompute the curve at `t + dt` in the
 // same invocation. Embarrassingly parallel, and identical in look when `dt`
 // equals the demo's per-sample step (trace / count).
-export const lissajousBrightness = /*@__PURE__*/ Fn((params) => {
-  const { t, dt = float(0.04 / 3500) } = params;
+//
+// Plain builder (not an Fn): it composes `lissajousAt` and re-passes the params
+// object, which only works on a real plain object — inside an Fn, `params` is a
+// proxy over the raw argument array, so spreading/re-passing it loses the named
+// fields. Callers pass the same plain object they give `lissajousAt`.
+export function lissajousBrightness(params) {
+  const t = params.t;
+  const dt = params.dt ?? float(0.04 / 3500);
   const p0 = lissajousAt(params);
   const p1 = lissajousAt({ ...params, t: t.add(dt) });
   const speed = p1.sub(p0).length().add(1e-4);
   return float(0.012).div(speed).min(1.5);
-});
+}
 
 // Full beam colour: hue -> rgb, scaled by velocity brightness, intensity gain,
 // and the rhythmic colour pulse (technique 4). Returns an additive-ready rgb.
-export const lissajousBeamColor = /*@__PURE__*/ Fn((params) => {
-  const {
-    t,
-    hue = float(0.4),
-    colorRate = float(2),
-    colorDepth = float(0),
-    gain = float(0.6),
-  } = params;
+// Plain builder for the same reason as `lissajousBrightness`.
+export function lissajousBeamColor(params) {
+  const t = params.t;
+  const hue = params.hue ?? float(0.4);
+  const colorRate = params.colorRate ?? float(2);
+  const colorDepth = params.colorDepth ?? float(0);
+  const gain = params.gain ?? float(0.6);
   const b = lissajousBrightness(params);
   const pulse = colorDepth
     .oneMinus()
     .add(colorDepth.mul(t.mul(colorRate).mul(TAU).sin().mul(0.5).add(0.5)));
   return hue2rgb({ hue }).mul(b.mul(gain).mul(pulse));
-});
+}
 
 // Per-vertex beam phase for a Points/Line geometry of `count` vertices: spreads
 // the samples across a short time window `trace` ending at `time`. Drives
