@@ -32,3 +32,11 @@ export { SmokeVolume } from "./fluidSim.js";
 export { VolumeSmokeNodeMaterial } from "./smokeMaterial.js";
 export { ComputeMipAwareBlueNoise } from "./blueNoise.js";
 export { createThunderNode, createThunderStateMachine, THUNDER_PRESETS } from './thunder.js';
+export {
+  lissajousAt,
+  lissajousBrightness,
+  lissajousBeamColor,
+  beamSampleT,
+  LISSAJOUS_DEFAULTS,
+  LISSAJOUS_PRESETS,
+} from './lissajous.js';

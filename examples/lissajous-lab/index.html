@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Lissajous Lab — lib3</title>
+    <style>
+      :root{ --bg:#05060a; --panel:#0c0f17; --line:#1c2230; --txt:#aeb6c6; --dim:#5a6478; --accent:#39e6c3; }
+      *{ box-sizing:border-box; }
+      html,body{ margin:0; height:100%; background:var(--bg); color:var(--txt);
+        font:12px/1.4 ui-monospace,Menlo,Consolas,monospace; }
+      #wrap{ display:flex; height:100vh; }
+      #stage{ flex:1; position:relative; min-width:0; }
+      canvas{ display:block; width:100%; height:100%; }
+      #panel{ width:268px; background:var(--panel); border-left:1px solid var(--line);
+        overflow-y:auto; padding:14px 14px 40px; }
+      h1{ font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); margin:0 0 2px; }
+      .sub{ color:var(--dim); margin:0 0 14px; font-size:10px; }
+      .grp{ margin:0 0 14px; }
+      .grp h2{ font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim);
+        margin:0 0 7px; border-bottom:1px solid var(--line); padding-bottom:4px; }
+      .row{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin:5px 0; }
+      .row label{ flex:0 0 92px; color:var(--txt); }
+      .row input[type=range]{ flex:1; height:3px; -webkit-appearance:none; appearance:none;
+        background:var(--line); border-radius:2px; outline:none; }
+      .row input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:11px; height:11px;
+        border-radius:50%; background:var(--accent); cursor:pointer; }
+      .row input[type=range]::-moz-range-thumb{ width:11px; height:11px; border:0; border-radius:50%;
+        background:var(--accent); cursor:pointer; }
+      .val{ flex:0 0 42px; text-align:right; color:var(--accent); }
+      .presets{ display:flex; flex-wrap:wrap; gap:5px; margin-bottom:16px; }
+      .presets button{ background:#121826; color:var(--txt); border:1px solid var(--line);
+        border-radius:4px; padding:5px 8px; font:inherit; cursor:pointer; }
+      .presets button:hover{ border-color:var(--accent); color:var(--accent); }
+    </style>
+    <script type="module" src="./main.js"></script>
+  </head>
+  <body>
+    <div id="wrap">
+      <div id="stage"><canvas id="canvas"></canvas></div>
+      <div id="panel">
+        <h1>Lissajous Lab</h1>
+        <p class="sub">lib3 · @oneilltom/lib3/lissajous · drag to orbit (3D)</p>
+        <div class="presets" id="presets"></div>
+        <div id="controls"></div>
+      </div>
+    </div>
+  </body>
+</html>
