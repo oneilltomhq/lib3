@@ -108,6 +108,7 @@ for (const [title, rows] of SPECS) {
     inp.addEventListener("input", () => {
       U[key].value = +inp.value;
       v.textContent = (+inp.value).toFixed(2);
+      clearActivePreset(); // any manual tweak diverges from the named preset
     });
     row.appendChild(inp); row.appendChild(v); g.appendChild(row);
     inputs[key] = { inp, v };
@@ -116,6 +117,10 @@ for (const [title, rows] of SPECS) {
 }
 
 const pbox = document.getElementById("presets");
+const presetButtons = [];
+function clearActivePreset() {
+  for (const btn of presetButtons) btn.classList.remove("active");
+}
 for (const name of Object.keys(LISSAJOUS_PRESETS)) {
   const b = document.createElement("button");
   b.textContent = name;
@@ -126,7 +131,10 @@ for (const name of Object.keys(LISSAJOUS_PRESETS)) {
       inputs[k].inp.value = U[k].value;
       inputs[k].v.textContent = (+U[k].value).toFixed(2);
     }
+    clearActivePreset();
+    b.classList.add("active");
   };
+  presetButtons.push(b);
   pbox.appendChild(b);
 }
 
