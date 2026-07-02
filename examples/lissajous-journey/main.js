@@ -19,7 +19,15 @@ import {
   LISSAJOUS_DEFAULTS,
   LISSAJOUS_PRESETS,
   LISSAJOUS_JOURNEY,
+  lerpLissajous,
+  lerpCamera,
+  cameraPosition,
+  cameraToSpherical,
+  resolveLissajousStop,
+  resolveLissajousJourney,
 } from "../../src/lissajous.js";
+
+const HOLD_DRIFT = 0.08; // rad/s of idle orbit while parked, so a held figure still has parallax
 
 const N = 3500; // samples along the beam path
 
@@ -78,18 +86,20 @@ function applyValues(values, reflect = true) {
     }
   }
 }
-// Resolve a journey stop into a complete, normalized config so transitions are
-// deterministic no matter how few fields a referenced preset names.
-function resolveStop(stop) {
-  const values = stop.values
-    ? { ...stop.values }
-    : { ...LISSAJOUS_DEFAULTS, ...(LISSAJOUS_PRESETS[stop.preset] || {}) };
-  return {
-    name: stop.name || stop.preset || "stop",
-    values,
-    hold: stop.hold ?? 2.5,
-    transition: stop.transition ?? 3.0,
-  };
+// Camera lives in the same spherical terms a stop's `camera` block uses, so the
+// autopilot, capture, and manual orbit all speak one language. snapshot reads the
+// live OrbitControls pose; apply flies the camera to a pose (controls.update()
+// then round-trips it cleanly, keeping damping intact).
+function snapshotCamera() {
+  return cameraToSpherical(
+    [camera.position.x, camera.position.y, camera.position.z],
+    [controls.target.x, controls.target.y, controls.target.z]
+  );
+}
+function applyCamera(pose) {
+  const [x, y, z] = cameraPosition(pose);
+  camera.position.set(x, y, z);
+  controls.target.set(pose.target[0], pose.target[1], pose.target[2]);
 }
 
 // ---- UI: knob panel ------------------------------------------------------------
@@ -175,16 +185,22 @@ for (const name of Object.keys(LISSAJOUS_PRESETS)) {
 }
 
 // ---- UI + driver: journey ------------------------------------------------------
-let journey = LISSAJOUS_JOURNEY.map(resolveStop);
+let journey = resolveLissajousJourney(LISSAJOUS_JOURNEY);
 let captureCount = 0;
 
-const drive = { playing: false, idx: 0, mode: "transition", tIn: 0, from: null };
+// camManual: the user grabbed the camera mid-leg, so autopilot stops *flying* it
+// (params keep morphing). Reset at each new stop, so a nudge only owns its leg and
+// the next transition smoothly takes over from wherever you left the camera.
+const drive = { playing: false, idx: 0, mode: "transition", tIn: 0, from: null, fromCam: null, camPose: null, camManual: false };
 
 function startJourney() {
   if (journey.length === 0) return;
   drive.playing = true;
   drive.idx = 0;
   drive.from = snapshot();
+  drive.fromCam = snapshotCamera();
+  drive.camPose = drive.fromCam;
+  drive.camManual = false;
   drive.mode = "transition";
   drive.tIn = 0;
   clearActivePreset();
@@ -199,23 +215,34 @@ function updateDrive(dt) {
   const step = journey[drive.idx];
   drive.tIn += dt;
   if (drive.mode === "transition") {
-    const T = step.transition;
+    const T = step.transition.duration;
     const a = T > 0 ? Math.min(1, drive.tIn / T) : 1;
     const e = a * a * (3 - 2 * a); // smoothstep ease
-    const vals = {};
-    for (const k in step.values) vals[k] = drive.from[k] + (step.values[k] - drive.from[k]) * e;
-    applyValues(vals, true);
+    applyValues(lerpLissajous(drive.from, step.values, e), true);
+    if (!drive.camManual) {
+      drive.camPose = lerpCamera(drive.fromCam, step.camera, e);
+      applyCamera(drive.camPose);
+    }
     if (a >= 1) { drive.mode = "hold"; drive.tIn = 0; }
   } else {
+    // hold: gentle idle orbit so even a resting figure keeps its parallax
+    if (!drive.camManual) {
+      drive.camPose = { ...drive.camPose, azimuth: drive.camPose.azimuth + HOLD_DRIFT * dt };
+      applyCamera(drive.camPose);
+    }
     if (drive.tIn >= step.hold) {
       drive.idx = (drive.idx + 1) % journey.length;
       drive.from = snapshot();
+      drive.fromCam = drive.camManual ? snapshotCamera() : drive.camPose;
+      drive.camManual = false; // fresh leg, autopilot reclaims the camera
       drive.mode = "transition";
       drive.tIn = 0;
       updateCurrent();
     }
   }
 }
+// Grabbing the camera during playback drops camera autopilot for the rest of this leg.
+controls.addEventListener("start", () => { if (drive.playing) drive.camManual = true; });
 
 // build the journey panel between the presets and the knobs
 const jEl = document.createElement("div");
@@ -236,11 +263,15 @@ const stopsEl = jEl.querySelector(".stops");
 playBtn.onclick = () => (drive.playing ? stopJourney() : startJourney());
 jEl.querySelector(".capture").onclick = () => {
   if (drive.playing) stopJourney();
-  journey.push(resolveStop({ name: `capture ${++captureCount}`, values: snapshot(), hold: 2.5, transition: 3.0 }));
+  const prevCam = journey[journey.length - 1]?.camera;
+  journey.push(resolveLissajousStop(
+    { name: `capture ${++captureCount}`, values: snapshot(), camera: snapshotCamera(), hold: 2.5, transition: 3.0 },
+    prevCam
+  ));
   renderStops();
 };
 jEl.querySelector(".export").onclick = () => {
-  const data = journey.map((s) => ({ values: s.values, hold: s.hold, transition: s.transition }));
+  const data = journey.map((s) => ({ values: s.values, camera: s.camera, hold: s.hold, transition: s.transition }));
   const text = JSON.stringify(data, null, 2);
   console.log("[lissajous journey]\n" + text);
   navigator.clipboard?.writeText(text).catch(() => {});
@@ -257,10 +288,10 @@ function renderStops() {
     nm.textContent = stop.name;
     nm.title = "preview this stop";
     nm.style.cursor = "pointer";
-    nm.onclick = () => { if (drive.playing) stopJourney(); applyValues(stop.values); };
+    nm.onclick = () => { if (drive.playing) stopJourney(); applyValues(stop.values); applyCamera(stop.camera); };
 
     const hold = numField(stop.hold, (val) => (stop.hold = val));
-    const trans = numField(stop.transition, (val) => (stop.transition = val));
+    const trans = numField(stop.transition.duration, (val) => (stop.transition.duration = val));
 
     const up = mini("▲", () => move(i, -1));
     const down = mini("▼", () => move(i, 1));

@@ -141,17 +141,137 @@ export const LISSAJOUS_PRESETS = {
 
 // A default "demo reel": an ordered tour of sweet spots, chosen so each
 // transition shows off a *different kind* of move rather than random hopping.
-// `hold` = seconds parked at the stop; `transition` = seconds to glide into it
-// from the previous one (the figure is interpolated parameter-by-parameter, so
-// e.g. a frequency change writhes through the in-between ratios before locking).
-// A stop may reference a preset by name, or carry its own `values` (what the
-// lab's capture button records). Each stop is resolved against the defaults, so
-// it's a complete configuration regardless of how few fields the preset names.
+//
+// A stop is a keyframe the autopilot flies to:
+//   values     — the knobs (a preset name, or a full captured snapshot)
+//   camera      — where the eye orbits to (azimuth/elevation/distance, see below);
+//                 omit it and the camera holds the previous stop's pose
+//   hold        — seconds parked at the stop
+//   transition  — how we glide IN from the previous stop. A bare number is shorthand
+//                 for `{ duration }`; the long form `{ duration, ease, kind }` is
+//                 reserved for richer joins (only ease:"smooth"/kind:"morph" wired up).
+//
+// Parameters interpolate channel-by-channel in their *natural* space (see
+// LISSAJOUS_CHANNELS) — frequencies sweep multiplicatively, phase/hue take the
+// shortest arc — so a frequency change writhes through the in-between ratios
+// before locking, and the camera orbits the figure rather than dollying through it.
 export const LISSAJOUS_JOURNEY = [
-  { preset: "circle",       hold: 3.0, transition: 0.0 }, // arrive on a clean ellipse
-  { preset: "detuned spin", hold: 2.0, transition: 4.0 }, // detune unlocks it -> slow precession
-  { preset: "3:4",          hold: 3.0, transition: 3.5 }, // writhe through ratios, re-lock to 3:4
-  { preset: "ring texture", hold: 2.5, transition: 3.0 }, // ring-mod blooms surface texture
-  { preset: "sphere knot",  hold: 3.0, transition: 4.5 }, // ampZ lifts the flat figure into 3D
-  { preset: "helix",        hold: 3.0, transition: 3.5 }, // settle into a turning 3D coil
+  { preset: "circle",       hold: 3.0, transition: 0.0, camera: { azimuth:  0.00, elevation: 0.06, distance: 3.0 } }, // clean ellipse, near head-on
+  { preset: "detuned spin", hold: 2.0, transition: 4.0, camera: { azimuth:  0.50, elevation: 0.18, distance: 3.0 } }, // drift aside: parallax on the precession
+  { preset: "3:4",          hold: 3.0, transition: 3.5, camera: { azimuth: -0.45, elevation: 0.12, distance: 2.9 } }, // swing across; re-lock to 3:4
+  { preset: "ring texture", hold: 2.5, transition: 3.0, camera: { azimuth:  0.35, elevation: 0.28, distance: 2.5 } }, // push in to read the texture
+  { preset: "sphere knot",  hold: 3.0, transition: 4.5, camera: { azimuth:  1.10, elevation: 0.55, distance: 3.5 } }, // rise & pull back as it lifts into 3D
+  { preset: "helix",        hold: 3.0, transition: 3.5, camera: { azimuth:  2.20, elevation: 0.32, distance: 3.2 } }, // orbit round the turning coil
 ];
+
+// ---- journey model: interpolation + stop resolution ----------------------------
+// Pure (no THREE, no TSL) so it's testable and reusable by any driver.
+
+// Per-channel interpolation space. Unlisted channels lerp linearly.
+//   log  — multiplicative (frequencies, zoom): a perceptually even sweep, so
+//          12->100 Hz spends as much time low as high instead of rushing the top.
+//   wrap — angular: takes the shortest path around `period` (so phase 6.0->0.2
+//          nudges across the seam instead of unwinding the whole cycle).
+export const LISSAJOUS_CHANNELS = {
+  freqX: { space: "log" }, freqY: { space: "log" }, freqZ: { space: "log" },
+  ringFreq: { space: "log" },
+  phaseX: { space: "wrap", period: TAU }, phaseY: { space: "wrap", period: TAU },
+  phaseZ: { space: "wrap", period: TAU },
+  hue: { space: "wrap", period: 1 },
+};
+
+// Default eye pose, in the spherical terms a stop's `camera` block uses.
+export const LISSAJOUS_CAMERA_DEFAULT = { azimuth: 0, elevation: 0.12, distance: 3.2, target: [0, 0, 0] };
+
+function lerpScalar(a, b, e) { return a + (b - a) * e; }
+
+// Interpolate one knob honoring its channel space; `e` in [0,1].
+export function lerpChannel(key, a, b, e) {
+  const space = LISSAJOUS_CHANNELS[key]?.space;
+  if (space === "log") {
+    const la = Math.log(Math.max(1e-6, a)), lb = Math.log(Math.max(1e-6, b));
+    return Math.exp(lerpScalar(la, lb, e));
+  }
+  if (space === "wrap") {
+    const p = LISSAJOUS_CHANNELS[key].period;
+    let d = (b - a) % p;
+    if (d > p / 2) d -= p;
+    if (d < -p / 2) d += p;
+    return a + d * e;
+  }
+  return lerpScalar(a, b, e);
+}
+
+// Interpolate a whole knob set from `from` to `to` (a full resolved stop value map).
+export function lerpLissajous(from, to, e) {
+  const out = {};
+  for (const k in to) out[k] = lerpChannel(k, from[k] ?? to[k], to[k], e);
+  return out;
+}
+
+// Spherical eye pose -> world position [x,y,z], orbiting `target`.
+export function cameraPosition({ azimuth, elevation, distance, target = [0, 0, 0] }) {
+  const ce = Math.cos(elevation);
+  return [
+    target[0] + distance * ce * Math.sin(azimuth),
+    target[1] + distance * Math.sin(elevation),
+    target[2] + distance * ce * Math.cos(azimuth),
+  ];
+}
+
+// World position (+target) -> the spherical pose, so a live camera can be captured
+// or handed back to the autopilot.
+export function cameraToSpherical(pos, target = [0, 0, 0]) {
+  const dx = pos[0] - target[0], dy = pos[1] - target[1], dz = pos[2] - target[2];
+  const distance = Math.hypot(dx, dy, dz) || 1e-6;
+  return {
+    azimuth: Math.atan2(dx, dz),
+    elevation: Math.asin(Math.max(-1, Math.min(1, dy / distance))),
+    distance,
+    target: [...target],
+  };
+}
+
+// Interpolate two eye poses: azimuth on the shortest arc, distance multiplicative
+// (zoom), elevation/target linear. Keeps the move an *orbit*, never a chord.
+export function lerpCamera(a, b, e) {
+  let dT = (b.azimuth - a.azimuth) % TAU;
+  if (dT > Math.PI) dT -= TAU;
+  if (dT < -Math.PI) dT += TAU;
+  const ta = a.target ?? [0, 0, 0], tb = b.target ?? [0, 0, 0];
+  return {
+    azimuth: a.azimuth + dT * e,
+    elevation: lerpScalar(a.elevation, b.elevation, e),
+    distance: Math.exp(lerpScalar(Math.log(a.distance), Math.log(b.distance), e)),
+    target: [0, 1, 2].map((i) => lerpScalar(ta[i], tb[i], e)),
+  };
+}
+
+// Normalize one authored/preset stop into a complete keyframe: values resolved
+// against the defaults, transition upgraded to its object form, camera filled in
+// (inheriting `prevCamera` when the stop names none, so camera is opt-in).
+export function resolveLissajousStop(stop, prevCamera = LISSAJOUS_CAMERA_DEFAULT) {
+  const values = stop.values
+    ? { ...LISSAJOUS_DEFAULTS, ...stop.values }
+    : { ...LISSAJOUS_DEFAULTS, ...(LISSAJOUS_PRESETS[stop.preset] || {}) };
+  const transition =
+    typeof stop.transition === "number"
+      ? { duration: stop.transition, ease: "smooth", kind: "morph" }
+      : { duration: 3.0, ease: "smooth", kind: "morph", ...(stop.transition || {}) };
+  const camera = stop.camera
+    ? { ...LISSAJOUS_CAMERA_DEFAULT, ...stop.camera }
+    : { ...prevCamera };
+  return { name: stop.name || stop.preset || "stop", values, camera, hold: stop.hold ?? 2.5, transition };
+}
+
+// Resolve a whole reel in order, threading camera inheritance through the stops.
+export function resolveLissajousJourney(stops) {
+  const out = [];
+  let prevCamera = LISSAJOUS_CAMERA_DEFAULT;
+  for (const stop of stops) {
+    const resolved = resolveLissajousStop(stop, prevCamera);
+    prevCamera = resolved.camera;
+    out.push(resolved);
+  }
+  return out;
+}

@@ -40,4 +40,13 @@ export {
   LISSAJOUS_DEFAULTS,
   LISSAJOUS_PRESETS,
   LISSAJOUS_JOURNEY,
+  LISSAJOUS_CHANNELS,
+  LISSAJOUS_CAMERA_DEFAULT,
+  lerpChannel,
+  lerpLissajous,
+  cameraPosition,
+  cameraToSpherical,
+  lerpCamera,
+  resolveLissajousStop,
+  resolveLissajousJourney,
 } from './lissajous.js';
