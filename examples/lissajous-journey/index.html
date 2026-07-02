@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Lissajous Journey — lib3</title>
+    <style>
+      :root{ --bg:#05060a; --panel:#0c0f17; --line:#1c2230; --txt:#aeb6c6; --dim:#5a6478; --accent:#39e6c3; }
+      *{ box-sizing:border-box; }
+      html,body{ margin:0; height:100%; background:var(--bg); color:var(--txt);
+        font:12px/1.4 ui-monospace,Menlo,Consolas,monospace; }
+      #wrap{ display:flex; height:100vh; }
+      #stage{ flex:1; position:relative; min-width:0; }
+      canvas{ display:block; width:100%; height:100%; }
+      #panel{ width:268px; flex:0 0 268px; background:var(--panel); border-left:1px solid var(--line);
+        overflow-y:auto; overflow-x:hidden; padding:14px 14px 40px; }
+      h1{ font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); margin:0 0 2px; }
+      .sub{ color:var(--dim); margin:0 0 14px; font-size:10px; }
+      .grp{ margin:0 0 14px; }
+      .grp h2{ font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim);
+        margin:0 0 7px; border-bottom:1px solid var(--line); padding-bottom:4px; }
+      .row{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin:5px 0; }
+      .row label{ flex:0 0 92px; color:var(--txt); }
+      .row input[type=range]{ flex:1; min-width:0; height:3px; -webkit-appearance:none; appearance:none;
+        background:var(--line); border-radius:2px; outline:none; }
+      .row input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:11px; height:11px;
+        border-radius:50%; background:var(--accent); cursor:pointer; }
+      .row input[type=range]::-moz-range-thumb{ width:11px; height:11px; border:0; border-radius:50%;
+        background:var(--accent); cursor:pointer; }
+      .val{ flex:0 0 42px; text-align:right; color:var(--accent); }
+      .presets{ display:flex; flex-wrap:wrap; gap:5px; margin-bottom:16px; }
+      .presets button{ background:#121826; color:var(--txt); border:1px solid var(--line);
+        border-radius:4px; padding:5px 8px; font:inherit; cursor:pointer; }
+      .presets button:hover{ border-color:var(--accent); color:var(--accent); }
+      .presets button.active{ background:var(--accent); border-color:var(--accent); color:#05060a; }
+      .grp h2 .hint{ float:right; color:var(--dim); text-transform:none; letter-spacing:0; font-size:9px; }
+      .jbar{ display:flex; gap:6px; margin-bottom:8px; }
+      .jbar button{ flex:1; background:#121826; color:var(--txt); border:1px solid var(--line);
+        border-radius:4px; padding:6px 8px; font:inherit; cursor:pointer; }
+      .jbar button:hover{ border-color:var(--accent); color:var(--accent); }
+      .jbar button.play.on{ background:var(--accent); border-color:var(--accent); color:#05060a; }
+      .stop{ display:flex; align-items:center; gap:4px; margin:3px 0; padding:3px 5px;
+        border:1px solid var(--line); border-radius:4px; background:#0a0d15; }
+      .stop.current{ border-color:var(--accent); }
+      .stop .nm{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--txt); }
+      .stop input{ width:30px; flex:0 0 30px; background:#121826; color:var(--accent); border:1px solid var(--line);
+        border-radius:3px; font:inherit; text-align:right; padding:1px 3px;
+        -moz-appearance:textfield; appearance:textfield; }
+      .stop input::-webkit-outer-spin-button, .stop input::-webkit-inner-spin-button{
+        -webkit-appearance:none; margin:0; }
+      .stop .mini{ background:none; border:0; color:var(--dim); cursor:pointer; padding:0 1px; font:inherit; }
+      .stop .mini:hover{ color:var(--accent); }
+      .stops-head{ display:flex; gap:4px; color:var(--dim); font-size:9px; margin:2px 0; padding:0 5px; }
+      /* Narrow viewports / phones: stack the panel under the canvas as a
+         scrollable bottom sheet rather than a side rail that runs out of room. */
+      @media (max-width:720px){
+        #wrap{ flex-direction:column; }
+        #stage{ flex:1 1 auto; min-height:46vh; }
+        #panel{ width:100%; flex:0 0 auto; max-height:50vh;
+          border-left:0; border-top:1px solid var(--line); }
+      }
+    </style>
+    <script type="module" src="./main.js"></script>
+  </head>
+  <body>
+    <div id="wrap">
+      <div id="stage"><canvas id="canvas"></canvas></div>
+      <div id="panel">
+        <h1>Lissajous Journey</h1>
+        <p class="sub">lib3 · @oneilltom/lib3/lissajous · play a reel of sweet spots, or author your own · drag to orbit</p>
+        <div class="presets" id="presets"></div>
+        <div id="controls"></div>
+      </div>
+    </div>
+  </body>
+</html>

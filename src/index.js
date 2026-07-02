@@ -32,3 +32,21 @@ export { SmokeVolume } from "./fluidSim.js";
 export { VolumeSmokeNodeMaterial } from "./smokeMaterial.js";
 export { ComputeMipAwareBlueNoise } from "./blueNoise.js";
 export { createThunderNode, createThunderStateMachine, THUNDER_PRESETS } from './thunder.js';
+export {
+  lissajousAt,
+  lissajousBrightness,
+  lissajousBeamColor,
+  beamSampleT,
+  LISSAJOUS_DEFAULTS,
+  LISSAJOUS_PRESETS,
+  LISSAJOUS_JOURNEY,
+  LISSAJOUS_CHANNELS,
+  LISSAJOUS_CAMERA_DEFAULT,
+  lerpChannel,
+  lerpLissajous,
+  cameraPosition,
+  cameraToSpherical,
+  lerpCamera,
+  resolveLissajousStop,
+  resolveLissajousJourney,
+} from './lissajous.js';

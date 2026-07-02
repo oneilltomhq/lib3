@@ -145,6 +145,7 @@ export default defineConfig(({ mode }) => {
             knotMorph: resolve(__dirname, "src/knotMorph.js"),
             thunder: resolve(__dirname, "src/thunder.js"),
             metaballs: resolve(__dirname, "src/metaballs.js"),
+            lissajous: resolve(__dirname, "src/lissajous.js"),
             sdf: resolve(__dirname, "src/sdf/index.js"),
             sdfText: resolve(__dirname, "src/sdf-text/index.js"),
           },

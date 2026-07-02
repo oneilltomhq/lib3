@@ -22,6 +22,9 @@
     "./metaballs": {
       "import": "./dist/metaballs.js"
     },
+    "./lissajous": {
+      "import": "./dist/lissajous.js"
+    },
     "./sdf": {
       "import": "./dist/sdf.js"
     },
