@@ -290,6 +290,17 @@ const PRESETS = {
     intensity: 1.1, fade: 0.04, steps: 32, ridge: 0.68, gain: 0.44,
     domain: 3.5, evolve: 0.21,
   },
+  // Fable's proposed third: the sparse/wound corner the other two don't reach.
+  // High thresh empties space so matter reads as distinct spiralling tendrils;
+  // full swirl winds them; sharper ridge makes them filamentary. Completes a
+  // swirl arc 0 -> 2.7 -> 9 for the coming 3-way transitions. thresh is the
+  // most extrapolated knob — if it comes out too empty/black, drop it toward
+  // 0.36; too full, raise toward 0.48.
+  vortex: {
+    aniso: 6.0, swirl: 9.0, thresh: 0.42, gamma: 3.0, density: 20,
+    intensity: 2.0, fade: 0.10, steps: 32, ridge: 0.75, gain: 0.42,
+    domain: 3.5, evolve: 0.21,
+  },
 };
 
 function snapshotParams() {
