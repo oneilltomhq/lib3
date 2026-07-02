@@ -15,6 +15,19 @@ export {
   raymarchSdf,
   RaymarchedMetaballs,
 } from "./metaballs.js";
+// Generic journey machinery (the lissajous block below re-exports the shared
+// camera helpers; lissajous's key-based lerpChannel keeps that name here — the
+// spec-based generic lives on the ./journey subpath).
+export {
+  lerpValues,
+  EASES,
+  resolveStop,
+  resolveJourney,
+  lfo,
+  drift,
+  modulate,
+  createJourneyDriver,
+} from "./journey.js";
 
 // Example TSL function (add your own here)
 export function exampleTSLFunction(input) {

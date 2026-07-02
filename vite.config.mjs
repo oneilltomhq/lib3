@@ -146,6 +146,7 @@ export default defineConfig(({ mode }) => {
             thunder: resolve(__dirname, "src/thunder.js"),
             metaballs: resolve(__dirname, "src/metaballs.js"),
             lissajous: resolve(__dirname, "src/lissajous.js"),
+            journey: resolve(__dirname, "src/journey.js"),
             sdf: resolve(__dirname, "src/sdf/index.js"),
             sdfText: resolve(__dirname, "src/sdf-text/index.js"),
           },
