@@ -271,10 +271,13 @@ const volumeColor = Fn(() => {
     const v = tex.sample(q).r;
 
     // threshold decides what is matter; gamma shapes it; the edge fade
-    // dissolves density before it can touch the box walls
-    const fade = smoothstep(0.5, uFade, abs(p.x))
-      .mul(smoothstep(0.5, uFade, abs(p.y)))
-      .mul(smoothstep(0.5, uFade, abs(p.z)));
+    // dissolves density before it can touch the box walls. Clamp the fade
+    // start below the wall: smoothstep(0.5, 0.5, x) is undefined (division by
+    // zero) and blanks the whole volume when the slider hits 0.5 exactly.
+    const fadeStart = uFade.min(0.495);
+    const fade = smoothstep(0.5, fadeStart, abs(p.x))
+      .mul(smoothstep(0.5, fadeStart, abs(p.y)))
+      .mul(smoothstep(0.5, fadeStart, abs(p.z)));
     const d = pow(smoothstep(uThresh, 1.0, v), uGamma).mul(fade);
 
     // front-to-back compositing: near filaments occlude far ones
