@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Anisotropic fBm Volume — lib3</title>
+    <script type="module" src="./main.js"></script>
+    <style>
+      :root{ --panel:#0c0f17d9; --line:#1c2230; --txt:#aeb6c6; --dim:#5a6478; --accent:#39e6c3; }
+      *{ box-sizing:border-box; }
+      html,body{ margin:0; height:100%; background:#000; color:var(--txt);
+        font:12px/1.4 ui-monospace,Menlo,Consolas,monospace; }
+      canvas{ display:block; width:100%; height:100%; }
+      #panel{ position:fixed; top:14px; right:14px; width:240px; background:var(--panel);
+        border:1px solid var(--line); border-radius:8px; padding:12px 14px;
+        backdrop-filter:blur(6px); }
+      h1{ font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); margin:0 0 2px; }
+      .sub{ color:var(--dim); margin:0 0 12px; font-size:10px; }
+      .row{ display:flex; align-items:center; gap:8px; margin:6px 0; }
+      .row label{ flex:0 0 62px; color:var(--txt); }
+      .row input[type=range]{ flex:1; min-width:0; height:3px; -webkit-appearance:none; appearance:none;
+        background:var(--line); border-radius:2px; outline:none; }
+      .row input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:11px; height:11px;
+        border-radius:50%; background:var(--accent); cursor:pointer; }
+      .row input[type=range]::-moz-range-thumb{ width:11px; height:11px; border:0; border-radius:50%;
+        background:var(--accent); cursor:pointer; }
+      .row .val{ flex:0 0 38px; text-align:right; color:var(--accent); }
+      .foot{ display:flex; justify-content:space-between; color:var(--dim); font-size:10px; margin-top:10px; }
+      .presets{ display:flex; flex-wrap:wrap; gap:5px; margin-bottom:10px; }
+      .presets button{ background:#121826; color:var(--txt); border:1px solid var(--line);
+        border-radius:4px; padding:4px 7px; font:inherit; font-size:10px; cursor:pointer; }
+      .presets button:hover{ border-color:var(--accent); color:var(--accent); }
+      .presets button.op{ color:var(--dim); }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <div id="panel">
+      <h1>Anisotropic fBm Volume</h1>
+      <p class="sub">the 2D streaks, in a raymarched volume: ridged fBm baked
+        once to a 128³ texture by compute, anisotropy applied at sample time —
+        drag to orbit through the filaments · ridge/gain/domain re-bake on
+        release</p>
+      <div class="presets" id="presets"></div>
+      <div id="params"></div>
+      <div class="foot"><span id="fps">— fps</span><span>bake: 128³ · 5 octaves</span></div>
+    </div>
+  </body>
+</html>
