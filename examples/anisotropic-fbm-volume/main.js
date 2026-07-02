@@ -64,7 +64,9 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   100
 );
-camera.position.set(0.9, 0.5, 1.6);
+// close enough that the box fills the frame (~0.9 out, 60° FOV): the good
+// looks want to be seen from near-inside, not admired from across the room
+camera.position.set(0.45, 0.25, 0.75);
 
 const renderer = new THREE.WebGPURenderer({
   canvas: document.getElementById("canvas"),
@@ -76,8 +78,70 @@ renderer.setClearColor(0x000000);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.autoRotate = true;
-controls.autoRotateSpeed = 0.6;
+
+// ---- auto-orbit: elliptical, non-uniform-speed camera drift --------------------------
+// A flat circular auto-rotate reads as mechanical. Earth's orbit isn't a
+// circle — it's an ellipse (eccentricity e != 0, sun off-centre at a focus),
+// and it sweeps faster near perihelion than aphelion (Kepler's second law:
+// equal areas in equal time). We steal both, plus a slow inclination bob so
+// the path isn't pinned to one flat plane either. Solved properly (Kepler's
+// equation via Newton's method) rather than faked with a sine, so the
+// speed-up/slow-down is the real thing, not an approximation of it.
+const orbit = {
+  active: true,
+  center: new THREE.Vector3(0, 0, 0),
+  a: camera.position.length(), // semi-major axis, from the starting distance
+  e: 0.3, // eccentricity: 0 = circle, closer to 1 = elongated. enough that the
+  // faster-near-perihelion sweep is legible, small enough the volume stays framed
+  incline: 0.4, // radians, tilt of the orbital plane
+  bobAmp: 0.15, // extra vertical bob, layered on top of the tilt
+  bobFreq: 2.7, // bob cycles per orbit (non-integer -> the path never repeats flat)
+  period: 28, // seconds per orbit at mean motion
+  M: 0, // mean anomaly; advances linearly with time
+};
+let orbitBlend = 0; // 0..1 ease back in after manual interaction, so resuming doesn't snap
+
+function keplerE(M, e) {
+  // Newton's method solve of Kepler's equation M = E - e*sin(E)
+  let E = M;
+  for (let i = 0; i < 5; i++) E -= (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
+  return E;
+}
+
+function orbitPosition() {
+  const { a, e, incline, bobAmp, bobFreq, M, center } = orbit;
+  const E = keplerE(M, e);
+  const bAxis = a * Math.sqrt(1 - e * e);
+  const x = a * (Math.cos(E) - e); // the volume sits at the ellipse's focus, not its centre
+  const zFlat = bAxis * Math.sin(E);
+  const y = zFlat * Math.sin(incline) + bobAmp * Math.sin(M * bobFreq);
+  const z = zFlat * Math.cos(incline);
+  return new THREE.Vector3(center.x + x, center.y + y, center.z + z);
+}
+
+// pause while the user drags/zooms, resume a couple seconds after they let go
+let resumeTimer = null;
+controls.addEventListener("start", () => {
+  orbit.active = false;
+  clearTimeout(resumeTimer);
+});
+controls.addEventListener("end", () => {
+  clearTimeout(resumeTimer);
+  resumeTimer = setTimeout(() => {
+    orbit.a = camera.position.distanceTo(orbit.center); // pick up from wherever they left it
+    orbitBlend = 0;
+    orbit.active = true;
+  }, 2000);
+});
+const orbitToggle = document.getElementById("orbitToggle");
+orbitToggle?.addEventListener("change", () => {
+  clearTimeout(resumeTimer);
+  if (orbitToggle.checked) {
+    orbit.a = camera.position.distanceTo(orbit.center);
+    orbitBlend = 0;
+  }
+  orbit.active = orbitToggle.checked;
+});
 
 // ---- uniforms ----------------------------------------------------------------------
 // Defaults are Tom's "ghost smoke" find (2026-07-02): big slow forms
@@ -275,9 +339,9 @@ for (const [label, target, min, max, step, rebake] of PARAMS) {
 }
 
 // ---- presets: the taste archive -----------------------------------------------------
-// Waypoints for the future transition/path work. A preset is params *plus the
-// camera pose* — how close you're standing is part of the config (the good
-// ones want to be seen from inside). ＋ capture snapshots the current state;
+// Config points for the future transition/path work — shader knobs ONLY. Camera
+// framing is deliberately a separate concern (it belongs to the higher waypoint
+// layer, not to a params preset). ＋ capture snapshots the current knobs;
 // ⧉ export copies all presets as JSON to the clipboard/console.
 const PRESETS = {
   "ghost smoke": {
@@ -301,15 +365,23 @@ const PRESETS = {
     intensity: 2.0, fade: 0.10, steps: 32, ridge: 0.75, gain: 0.42,
     domain: 3.5, evolve: 0.21,
   },
+  // Tom's find, descended from vortex but thinned right out (density 7 — below
+  // anything the others reach, so it's not on the line between them) and
+  // brightened (intensity 3) so the sparse matter glows; evolve maxed for fast
+  // churn. Authored to be seen from near-inside, but that framing is the
+  // camera's business, not the preset's — presets are shader knobs only.
+  ember: {
+    aniso: 2.3, swirl: 5.4, thresh: 0.42, gamma: 3.0, density: 7,
+    intensity: 3.0, fade: 0.1, steps: 32, ridge: 0.75, gain: 0.42,
+    domain: 3.5, evolve: 0.4,
+  },
 };
 
+// presets are shader knobs only — camera framing is a separate concern (kept
+// for the future waypoint layer, not baked into a params preset)
 function snapshotParams() {
   const s = {};
   for (const label in inputs) s[label] = +inputs[label].target.value;
-  s.camera = {
-    position: [camera.position.x, camera.position.y, camera.position.z].map((n) => +n.toFixed(3)),
-    target: [controls.target.x, controls.target.y, controls.target.z].map((n) => +n.toFixed(3)),
-  };
   return s;
 }
 
@@ -320,10 +392,6 @@ function applyParams(p) {
     target.value = p[label];
     inp.value = p[label];
     val.textContent = (+p[label]).toFixed(2);
-  }
-  if (p.camera) {
-    camera.position.set(...p.camera.position);
-    controls.target.set(...p.camera.target);
   }
   bakeDirty = true; // cheap, and covers any bake-side keys that changed
 }
@@ -391,6 +459,12 @@ renderer.init().then(async () => {
       fpsClock = 0;
     }
 
+    if (orbit.active) {
+      orbit.M += (dt * Math.PI * 2) / orbit.period;
+      orbitBlend = Math.min(1, orbitBlend + dt / 1.2); // ease in over ~1.2s, no hard snap
+      camera.position.lerp(orbitPosition(), orbitBlend);
+      camera.lookAt(orbit.center);
+    }
     controls.update();
     renderer.render(scene, camera);
   });
