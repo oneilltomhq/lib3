@@ -6,8 +6,9 @@
 // A journey plays a *tour* of sweet spots, interpolating every parameter from
 // one stop to the next so you watch the figure morph (frequency changes writhe
 // through the in-between ratios before locking). Play the curated default reel,
-// or capture/reorder/export your own stops to author one. No afterglow
-// persistence yet (Phase 2). The plain lab (no journey) lives in lissajous-lab.
+// or capture/reorder/export your own stops to author one. The tour state
+// machine is the generic driver in src/journey.js. No afterglow persistence
+// yet (Phase 2). The plain lab (no journey) lives in lissajous-lab.
 
 import * as THREE from "three/webgpu";
 import { uniform, float } from "three/tsl";
@@ -18,14 +19,14 @@ import {
   beamSampleT,
   LISSAJOUS_DEFAULTS,
   LISSAJOUS_PRESETS,
+  LISSAJOUS_CHANNELS,
   LISSAJOUS_JOURNEY,
-  lerpLissajous,
-  lerpCamera,
   cameraPosition,
   cameraToSpherical,
   resolveLissajousStop,
   resolveLissajousJourney,
 } from "../../src/lissajous.js";
+import { createJourneyDriver } from "../../src/journey.js";
 
 const HOLD_DRIFT = 0.08; // rad/s of idle orbit while parked, so a held figure still has parallax
 
@@ -41,6 +42,11 @@ camera.position.set(0, 0, 3.2);
 const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
+
+// ---- state: base patch ------------------------------------------------------------
+// `base` is the source of truth — sliders, presets and journey legs all write it;
+// the render loop mirrors it into the uniforms.
+const base = { ...LISSAJOUS_DEFAULTS };
 
 // ---- uniforms (one per knob) ---------------------------------------------------
 const U = {};
@@ -69,17 +75,16 @@ const points = new THREE.Points(geo, material);
 scene.add(points);
 
 // ---- state helpers -------------------------------------------------------------
-// snapshot/apply work in plain {key: number} space so presets, journeys and the
-// capture button all speak the same language.
+// snapshot/apply work on the *base* patch in plain {key: number} space so
+// presets, journeys and the capture button all speak the same language.
+// (Uniforms are written from base+modulation in the render loop, never here.)
 function snapshot() {
-  const s = {};
-  for (const k in U) s[k] = U[k].value;
-  return s;
+  return { ...base };
 }
 function applyValues(values, reflect = true) {
   for (const k in values) {
-    if (!(k in U)) continue;
-    U[k].value = values[k];
+    if (!(k in base)) continue;
+    base[k] = values[k];
     if (reflect && inputs[k]) {
       inputs[k].inp.value = values[k];
       inputs[k].v.textContent = (+values[k]).toFixed(2);
@@ -149,15 +154,15 @@ for (const [title, rows] of SPECS) {
     row.innerHTML = `<label>${label}</label>`;
     const inp = document.createElement("input");
     inp.type = "range";
-    inp.min = min; inp.max = max; inp.step = step; inp.value = U[key].value;
+    inp.min = min; inp.max = max; inp.step = step; inp.value = base[key];
     const v = document.createElement("span");
     v.className = "val";
-    v.textContent = (+U[key].value).toFixed(2);
+    v.textContent = (+base[key]).toFixed(2);
     inp.addEventListener("input", () => {
-      U[key].value = +inp.value;
+      base[key] = +inp.value;
       v.textContent = (+inp.value).toFixed(2);
       clearActivePreset();    // diverged from any named preset
-      if (drive.playing) stopJourney(); // grabbing the wheel turns off autopilot
+      if (driver.playing) stopJourney(); // grabbing the wheel turns off autopilot
     });
     row.appendChild(inp); row.appendChild(v); g.appendChild(row);
     inputs[key] = { inp, v };
@@ -175,7 +180,7 @@ for (const name of Object.keys(LISSAJOUS_PRESETS)) {
   const b = document.createElement("button");
   b.textContent = name;
   b.onclick = () => {
-    if (drive.playing) stopJourney();
+    if (driver.playing) stopJourney();
     applyValues({ ...LISSAJOUS_DEFAULTS, ...LISSAJOUS_PRESETS[name] });
     clearActivePreset();
     b.classList.add("active");
@@ -188,61 +193,33 @@ for (const name of Object.keys(LISSAJOUS_PRESETS)) {
 let journey = resolveLissajousJourney(LISSAJOUS_JOURNEY);
 let captureCount = 0;
 
-// camManual: the user grabbed the camera mid-leg, so autopilot stops *flying* it
-// (params keep morphing). Reset at each new stop, so a nudge only owns its leg and
-// the next transition smoothly takes over from wherever you left the camera.
-const drive = { playing: false, idx: 0, mode: "transition", tIn: 0, from: null, fromCam: null, camPose: null, camManual: false };
+// The arrangement autopilot (src/journey.js) flies `base` and the camera
+// through the stops; grabbing the camera mid-leg hands it to you until the
+// next stop. Modulation rides on top either way — see the render loop.
+const driver = createJourneyDriver({
+  stops: journey,
+  channels: LISSAJOUS_CHANNELS,
+  getBase: snapshot,
+  setBase: (v) => applyValues(v, true),
+  getCamera: snapshotCamera,
+  setCamera: applyCamera,
+  holdOrbit: HOLD_DRIFT,
+  onStopChange: () => updateCurrent(),
+});
 
 function startJourney() {
   if (journey.length === 0) return;
-  drive.playing = true;
-  drive.idx = 0;
-  drive.from = snapshot();
-  drive.fromCam = snapshotCamera();
-  drive.camPose = drive.fromCam;
-  drive.camManual = false;
-  drive.mode = "transition";
-  drive.tIn = 0;
   clearActivePreset();
+  driver.stops = journey;
+  driver.start();
   updateJourneyUI();
 }
 function stopJourney() {
-  drive.playing = false;
+  driver.stop();
   updateJourneyUI();
 }
-function updateDrive(dt) {
-  if (!drive.playing || journey.length === 0) return;
-  const step = journey[drive.idx];
-  drive.tIn += dt;
-  if (drive.mode === "transition") {
-    const T = step.transition.duration;
-    const a = T > 0 ? Math.min(1, drive.tIn / T) : 1;
-    const e = a * a * (3 - 2 * a); // smoothstep ease
-    applyValues(lerpLissajous(drive.from, step.values, e), true);
-    if (!drive.camManual) {
-      drive.camPose = lerpCamera(drive.fromCam, step.camera, e);
-      applyCamera(drive.camPose);
-    }
-    if (a >= 1) { drive.mode = "hold"; drive.tIn = 0; }
-  } else {
-    // hold: gentle idle orbit so even a resting figure keeps its parallax
-    if (!drive.camManual) {
-      drive.camPose = { ...drive.camPose, azimuth: drive.camPose.azimuth + HOLD_DRIFT * dt };
-      applyCamera(drive.camPose);
-    }
-    if (drive.tIn >= step.hold) {
-      drive.idx = (drive.idx + 1) % journey.length;
-      drive.from = snapshot();
-      drive.fromCam = drive.camManual ? snapshotCamera() : drive.camPose;
-      drive.camManual = false; // fresh leg, autopilot reclaims the camera
-      drive.mode = "transition";
-      drive.tIn = 0;
-      updateCurrent();
-    }
-  }
-}
 // Grabbing the camera during playback drops camera autopilot for the rest of this leg.
-controls.addEventListener("start", () => { if (drive.playing) drive.camManual = true; });
+controls.addEventListener("start", () => driver.grabCamera());
 
 // build the journey panel between the presets and the knobs
 const jEl = document.createElement("div");
@@ -260,9 +237,9 @@ controlsEl.parentNode.insertBefore(jEl, controlsEl);
 
 const playBtn = jEl.querySelector(".play");
 const stopsEl = jEl.querySelector(".stops");
-playBtn.onclick = () => (drive.playing ? stopJourney() : startJourney());
+playBtn.onclick = () => (driver.playing ? stopJourney() : startJourney());
 jEl.querySelector(".capture").onclick = () => {
-  if (drive.playing) stopJourney();
+  if (driver.playing) stopJourney();
   const prevCam = journey[journey.length - 1]?.camera;
   journey.push(resolveLissajousStop(
     { name: `capture ${++captureCount}`, values: snapshot(), camera: snapshotCamera(), hold: 2.5, transition: 3.0 },
@@ -288,7 +265,7 @@ function renderStops() {
     nm.textContent = stop.name;
     nm.title = "preview this stop";
     nm.style.cursor = "pointer";
-    nm.onclick = () => { if (drive.playing) stopJourney(); applyValues(stop.values); applyCamera(stop.camera); };
+    nm.onclick = () => { if (driver.playing) stopJourney(); applyValues(stop.values); applyCamera(stop.camera); };
 
     const hold = numField(stop.hold, (val) => (stop.hold = val));
     const trans = numField(stop.transition.duration, (val) => (stop.transition.duration = val));
@@ -321,17 +298,17 @@ function move(i, dir) {
   const j = i + dir;
   if (j < 0 || j >= journey.length) return;
   [journey[i], journey[j]] = [journey[j], journey[i]];
-  if (drive.playing) stopJourney();
+  if (driver.playing) stopJourney();
   renderStops();
 }
 function updateCurrent() {
   stopRows.forEach((row, i) =>
-    row.classList.toggle("current", drive.playing && i === drive.idx)
+    row.classList.toggle("current", driver.playing && i === driver.index)
   );
 }
 function updateJourneyUI() {
-  playBtn.textContent = drive.playing ? "⏸ Pause" : "▶ Play";
-  playBtn.classList.toggle("on", drive.playing);
+  playBtn.textContent = driver.playing ? "⏸ Pause" : "▶ Play";
+  playBtn.classList.toggle("on", driver.playing);
   updateCurrent();
 }
 renderStops();
@@ -349,8 +326,9 @@ const clock = new THREE.Clock();
 function animate() {
   const d = Math.min(0.05, clock.getDelta());
   time.value += d;
-  updateDrive(d);
-  material.size = U.size.value;
+  driver.update(d); // moves `base` (and camera) between stops
+  for (const k in U) U[k].value = base[k];
+  material.size = base.size;
   controls.update();
   renderer.render(scene, camera);
 }

@@ -25,6 +25,9 @@
     "./lissajous": {
       "import": "./dist/lissajous.js"
     },
+    "./journey": {
+      "import": "./dist/journey.js"
+    },
     "./sdf": {
       "import": "./dist/sdf.js"
     },
@@ -41,7 +44,7 @@
     "build:examples": "vite build --mode examples",
     "dev": "vite --mode examples",
     "prepublishOnly": "pnpm build",
-    "test": "node --test test/sdf-pipeline.test.mjs"
+    "test": "node --test test/sdf-pipeline.test.mjs test/journey.test.mjs"
   },
   "keywords": [],
   "author": "",
