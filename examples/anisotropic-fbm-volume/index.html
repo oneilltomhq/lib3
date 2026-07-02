@@ -25,6 +25,11 @@
         background:var(--accent); cursor:pointer; }
       .row .val{ flex:0 0 38px; text-align:right; color:var(--accent); }
       .foot{ display:flex; justify-content:space-between; color:var(--dim); font-size:10px; margin-top:10px; }
+      .presets{ display:flex; flex-wrap:wrap; gap:5px; margin-bottom:10px; }
+      .presets button{ background:#121826; color:var(--txt); border:1px solid var(--line);
+        border-radius:4px; padding:4px 7px; font:inherit; font-size:10px; cursor:pointer; }
+      .presets button:hover{ border-color:var(--accent); color:var(--accent); }
+      .presets button.op{ color:var(--dim); }
     </style>
   </head>
   <body>
@@ -35,6 +40,7 @@
         once to a 128³ texture by compute, anisotropy applied at sample time —
         drag to orbit through the filaments · ridge/gain/domain re-bake on
         release</p>
+      <div class="presets" id="presets"></div>
       <div id="params"></div>
       <div class="foot"><span id="fps">— fps</span><span>bake: 128³ · 5 octaves</span></div>
     </div>

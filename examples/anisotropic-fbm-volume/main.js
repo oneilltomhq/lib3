@@ -27,6 +27,7 @@ import {
   Loop,
   abs,
   cameraPosition,
+  cos,
   dot,
   float,
   fract,
@@ -90,6 +91,9 @@ const uDomain = uniform(2.0); // noise scale inside the bake
 const uEvolve = uniform(0.0); // churn phase; each octave drifts differently
 // sample-side (free, per-frame)
 const uAniso = uniform(2.6); // 1 = isotropic cloud, 16 = combed filaments
+const uSwirl = uniform(0.0); // radians of twist per unit height: 0 = straight
+// comb, ~6 = one full turn top-to-bottom — the grain becomes helical, so the
+// filaments wind around the core and there's no dead viewing angle
 const uThresh = uniform(0.33); // below this is empty space, not matter
 const uGamma = uniform(2.1); // density shaping above the threshold
 const uDensity = uniform(16.0); // absorption strength (how solid matter is)
@@ -184,10 +188,22 @@ const volumeColor = Fn(() => {
     If(t.greaterThan(t1), () => Break());
     const p = vOrigin.add(rayDir.mul(t));
 
-    // anisotropy: compress the Y sample coordinate so the field varies slowly
-    // along Y -> filaments comb out along the vertical. Coordinates only ever
-    // shrink toward the texture's middle slab, so no wrapping seams.
-    const q = p.mul(vec3(1.0, float(1.0).div(uAniso), 1.0)).add(0.5);
+    // swirl: rotate the sample point around Y by an angle proportional to its
+    // height (a screw transform). A straight vertical filament's preimage
+    // under this map is a helix, so the comb direction itself curves.
+    // (Rotated corners can sample past the texture edge; the edge fade has
+    // already killed density out there, so clamp artifacts stay invisible.)
+    const ang = uSwirl.mul(p.y);
+    const c = cos(ang);
+    const s = sin(ang);
+    const pr = vec3(
+      p.x.mul(c).sub(p.z.mul(s)),
+      p.y,
+      p.x.mul(s).add(p.z.mul(c))
+    );
+    // anisotropy: compress the (twisted) Y sample coordinate so the field
+    // varies slowly along the grain -> filaments comb out along it.
+    const q = pr.mul(vec3(1.0, float(1.0).div(uAniso), 1.0)).add(0.5);
     const v = tex.sample(q).r;
 
     // threshold decides what is matter; gamma shapes it; the edge fade
@@ -223,6 +239,7 @@ scene.add(mesh);
 const evolveSpeed = { value: 0.21 };
 const PARAMS = [
   ["aniso", uAniso, 1, 16, 0.1, false],
+  ["swirl", uSwirl, 0, 12, 0.1, false],
   ["thresh", uThresh, 0, 0.8, 0.01, false],
   ["gamma", uGamma, 0.5, 5, 0.05, false],
   ["density", uDensity, 1, 40, 0.5, false],
@@ -236,6 +253,7 @@ const PARAMS = [
 ];
 
 const paramsEl = document.getElementById("params");
+const inputs = {};
 for (const [label, target, min, max, step, rebake] of PARAMS) {
   const row = document.createElement("div");
   row.className = "row";
@@ -253,7 +271,78 @@ for (const [label, target, min, max, step, rebake] of PARAMS) {
   });
   row.append(inp, val);
   paramsEl.appendChild(row);
+  inputs[label] = { inp, val, target };
 }
+
+// ---- presets: the taste archive -----------------------------------------------------
+// Waypoints for the future transition/path work. A preset is params *plus the
+// camera pose* — how close you're standing is part of the config (the good
+// ones want to be seen from inside). ＋ capture snapshots the current state;
+// ⧉ export copies all presets as JSON to the clipboard/console.
+const PRESETS = {
+  "ghost smoke": {
+    aniso: 2.6, swirl: 0, thresh: 0.33, gamma: 2.1, density: 16,
+    intensity: 2.6, fade: 0.12, steps: 32, ridge: 0.68, gain: 0.44,
+    domain: 2, evolve: 0.21,
+  },
+  "silk veil": {
+    aniso: 8.8, swirl: 2.7, thresh: 0.11, gamma: 3.35, density: 14.5,
+    intensity: 1.1, fade: 0.04, steps: 32, ridge: 0.68, gain: 0.44,
+    domain: 3.5, evolve: 0.21,
+  },
+};
+
+function snapshotParams() {
+  const s = {};
+  for (const label in inputs) s[label] = +inputs[label].target.value;
+  s.camera = {
+    position: [camera.position.x, camera.position.y, camera.position.z].map((n) => +n.toFixed(3)),
+    target: [controls.target.x, controls.target.y, controls.target.z].map((n) => +n.toFixed(3)),
+  };
+  return s;
+}
+
+function applyParams(p) {
+  for (const label in inputs) {
+    if (p[label] === undefined) continue;
+    const { inp, val, target } = inputs[label];
+    target.value = p[label];
+    inp.value = p[label];
+    val.textContent = (+p[label]).toFixed(2);
+  }
+  if (p.camera) {
+    camera.position.set(...p.camera.position);
+    controls.target.set(...p.camera.target);
+  }
+  bakeDirty = true; // cheap, and covers any bake-side keys that changed
+}
+
+const presetsEl = document.getElementById("presets");
+let captureCount = 0;
+function addPresetButton(name) {
+  const b = document.createElement("button");
+  b.textContent = name;
+  b.onclick = () => applyParams(PRESETS[name]);
+  presetsEl.insertBefore(b, capBtn);
+}
+const capBtn = document.createElement("button");
+capBtn.className = "op";
+capBtn.textContent = "＋ capture";
+const expBtn = document.createElement("button");
+expBtn.className = "op";
+expBtn.textContent = "⧉ export";
+presetsEl.append(capBtn, expBtn);
+for (const name in PRESETS) addPresetButton(name);
+capBtn.onclick = () => {
+  const name = `capture ${++captureCount}`;
+  PRESETS[name] = snapshotParams();
+  addPresetButton(name);
+};
+expBtn.onclick = () => {
+  const text = JSON.stringify(PRESETS, null, 2);
+  console.log("[fbm-volume presets]\n" + text);
+  navigator.clipboard?.writeText(text).catch(() => {});
+};
 
 // ---- resize + loop --------------------------------------------------------------------
 function onResize() {
