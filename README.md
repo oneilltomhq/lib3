@@ -13,6 +13,8 @@ raymarching, and procedural effects.
 - ⚡ **Thunder Lightning** - Volumetric contained-lightning with fluid-driven filaments
 - 🫧 **Metaballs** - Smooth-min SDF globules rendered with TSL raymarching
 - 🔤 **SDF Text** - CPU glyph atlas + GPU instanced TSL text rendering
+- 📺 **Hydra Chains** - Hydra video-synth patching idiom compiled to TSL, with
+  feedback outputs and a transform registry lib3 nodes can join
 - 🧩 **Composable** - Pure TSL nodes that compose naturally with Three.js WebGPU
 - 📦 **Tree-shakeable** - Modular exports for optimal bundle size
 - 🎨 **Example Gallery** - 13+ interactive examples showcasing different
@@ -336,6 +338,53 @@ function animate() {
 }
 ```
 
+### Hydra (`@oneilltom/lib3/hydra`)
+
+The Hydra livecoding idiom over TSL: chains read outside-in
+(`osc(10).rotate(0.4).modulate(src(o0), 0.02)`) and compile to a deferred
+`(st) → vec4` node graph — coord transforms compose into the uv *before* the
+source evaluates, same algorithm as hydra-synth's `generateGlsl()` but
+emitting TSL instead of GLSL strings. Runs on WebGPU (WGSL) with automatic
+WebGL (GLSL) fallback. Numeric args become live uniforms; function args
+(`t => ...`) update per frame without recompile.
+
+#### `HydraSynth({ renderer, width?, height?, outputs? })`
+
+The runtime: N ping-pong feedback outputs plus the patch api. The renderer is
+injected — create and init it yourself. `synth.api` exposes `osc, noise,
+voronoi, gradient, solid, shape, src, o0..oN, render`. Per frame call
+`synth.update(t)` (offscreen passes only, composite `oN.texNode` into your own
+scene) or `synth.tick(t)` (update + fullscreen blit).
+
+```javascript
+import { WebGPURenderer } from "three/webgpu";
+import { HydraSynth } from "@oneilltom/lib3/hydra";
+
+const renderer = new WebGPURenderer({ canvas });
+await renderer.init();
+const synth = new HydraSynth({ renderer, width: 960, height: 540 });
+const { osc, src, o0 } = synth.api;
+osc(10, 0.1, 1).rotate(0.4).modulate(src(o0).scale(1.04), 0.02).out(o0);
+// rAF: synth.tick(t)
+```
+
+#### `chainColorNode(chain, st?)`
+
+Compile a chain straight to a colorNode for any node material — hydra patches
+as surface textures, no synth required. Returns `{ node, updaters }`.
+
+#### `registerTransform(name, { type, defaults, fn })`
+
+Add a transform to the vocabulary (types: `src`, `coord`, `color`, `combine`,
+`combineCoord`) — how lib3 nodes join hydra chains. `getTransforms()` lists
+the registry.
+
+#### `HydraOutput(width, height)`
+
+A standalone ping-pong feedback buffer: `setChain(chain)`,
+`updateUniforms(t)`, `render(renderer)`, `texNode` to sample. Slots into any
+host loop (e.g. an exhibit runner).
+
 ## Examples
 
 The package includes 13+ examples demonstrating various techniques:
@@ -415,6 +464,7 @@ import { createThunderNode, THUNDER_PRESETS } from "@oneilltom/lib3/thunder";
 import { RaymarchedMetaballs } from "@oneilltom/lib3/metaballs";
 import { computeSDF } from "@oneilltom/lib3/sdf";
 import { BatchedText } from "@oneilltom/lib3/sdf-text";
+import { HydraSynth, chainColorNode } from "@oneilltom/lib3/hydra";
 ```
 
 ## WebGPU Compatibility

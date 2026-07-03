@@ -147,6 +147,7 @@ export default defineConfig(({ mode }) => {
             metaballs: resolve(__dirname, "src/metaballs.js"),
             lissajous: resolve(__dirname, "src/lissajous.js"),
             journey: resolve(__dirname, "src/journey.js"),
+            hydra: resolve(__dirname, "src/hydra/index.js"),
             sdf: resolve(__dirname, "src/sdf/index.js"),
             sdfText: resolve(__dirname, "src/sdf-text/index.js"),
           },

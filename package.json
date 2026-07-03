@@ -1,6 +1,6 @@
 {
   "name": "@oneilltom/lib3",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Composable TSL nodes and utilities for Three.js/WebGPU (waves, morphs, metaballs, sdf-text).",
   "type": "module",
   "sideEffects": false,
@@ -28,6 +28,9 @@
     "./journey": {
       "import": "./dist/journey.js"
     },
+    "./hydra": {
+      "import": "./dist/hydra.js"
+    },
     "./sdf": {
       "import": "./dist/sdf.js"
     },
@@ -44,7 +47,7 @@
     "build:examples": "vite build --mode examples",
     "dev": "vite --mode examples",
     "prepublishOnly": "pnpm build",
-    "test": "node --test test/sdf-pipeline.test.mjs test/journey.test.mjs test/conductor.test.mjs"
+    "test": "node --test test/sdf-pipeline.test.mjs test/journey.test.mjs test/conductor.test.mjs test/hydra.test.mjs"
   },
   "keywords": [],
   "author": "",

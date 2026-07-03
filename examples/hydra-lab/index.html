@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hydra Lab — Hydra chains on WebGPU/TSL</title>
+  <script type="module" src="./main.js"></script>
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden;
+      font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; }
+    #view { display: block; width: 100vw; height: 100vh; }
+    #hud {
+      position: fixed; top: 0; left: 0; right: 0; padding: 8px 12px;
+      color: #39e6c3; background: rgba(0,0,0,0.55); white-space: pre-wrap;
+      z-index: 10; pointer-events: none;
+    }
+    #hud a { pointer-events: auto; color: #9cf; }
+    #shader {
+      position: fixed; bottom: 0; left: 0; width: 46vw; max-height: 60vh; overflow: auto;
+      margin: 0; padding: 8px 12px; color: #9cf; background: rgba(0,0,0,0.7);
+      font-size: 11px; z-index: 10; white-space: pre;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="view"></canvas>
+  <div id="hud">booting…</div>
+  <pre id="shader"></pre>
+</body>
+</html>

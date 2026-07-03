@@ -41,6 +41,17 @@ export function exampleTSLFunction(input) {
 // Re-export from other files, e.g.:
 // export * from './myOtherFunction.js';
 
+export {
+  TslSource,
+  registerTransform,
+  getTransforms,
+  compile as compileHydraChain,
+  chainColorNode,
+  createSourceApi,
+  HydraOutput,
+  HydraSynth,
+} from "./hydra/index.js";
+
 export { SmokeVolume } from "./fluidSim.js";
 export { VolumeSmokeNodeMaterial } from "./smokeMaterial.js";
 export { ComputeMipAwareBlueNoise } from "./blueNoise.js";
