@@ -18,7 +18,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { HydraSynth } from "../../src/hydra/index.js";
 import { RaymarchedMetaballs } from "../../src/metaballs.js";
 import { Conductor, Spring } from "../../src/conductor.js";
-import { Rack, bindKey, bindUniform, localStorageAdapter } from "../../src/rack.js";
+import { Rack, bindKey, bindUniform, connectRackBridge, localStorageAdapter } from "../../src/rack.js";
 
 const canvas = document.getElementById("view");
 const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
@@ -144,6 +144,7 @@ rack.add("/balls/kick", {
   set: (v) => { if (v >= 0.5) swirlBoost.kick(ctrl.kickSwirl); },
 }, { min: 0, max: 1, type: "trigger" });
 
+if (new URLSearchParams(location.search).has("bridge")) connectRackBridge(rack);
 window.rack = rack;
 window.synth = synth;
 window.metaballs = metaballs;

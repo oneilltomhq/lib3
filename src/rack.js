@@ -254,6 +254,50 @@ function memoryStorage() {
   return { load: () => structuredClone(data), save: (d) => { data = structuredClone(d); } };
 }
 
+/**
+ * Connect a page's rack to the bridge relay (scripts/rack-bridge.mjs), so a
+ * terminal agent drives the LIVE page through scripts/rackctl.mjs — same
+ * recorded channel as the on-page UI. Retries forever; call once at startup
+ * (examples gate it behind ?bridge).
+ */
+export function connectRackBridge(rack, url = "ws://127.0.0.1:5175") {
+  let wasConnected = false;
+  function connect() {
+    let sock;
+    try {
+      sock = new WebSocket(url);
+    } catch {
+      setTimeout(connect, 2000);
+      return;
+    }
+    sock.addEventListener("open", () => {
+      sock.send(JSON.stringify({ role: "rack" }));
+      wasConnected = true;
+      console.log("[rack] bridge connected");
+    });
+    sock.addEventListener("message", async (event) => {
+      const msg = JSON.parse(event.data);
+      const reply = { id: msg.id };
+      try {
+        const fn = rack[msg.method];
+        if (typeof fn !== "function") throw new Error(`unknown rack method: ${msg.method}`);
+        reply.ok = true;
+        reply.result = (await fn.apply(rack, msg.args ?? [])) ?? null;
+      } catch (error) {
+        reply.ok = false;
+        reply.error = error.message;
+      }
+      if (sock.readyState === 1) sock.send(JSON.stringify(reply));
+    });
+    sock.addEventListener("close", () => {
+      if (wasConnected) console.log("[rack] bridge disconnected — retrying");
+      wasConnected = false;
+      setTimeout(connect, 2000);
+    });
+  }
+  connect();
+}
+
 /** Snapshot persistence in a browser page. */
 export function localStorageAdapter(key = "lib3RackSnaps") {
   return {

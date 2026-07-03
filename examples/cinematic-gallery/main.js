@@ -13,7 +13,7 @@ import { color, normalView, uniform, uv } from "three/tsl";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import * as THREE from "three/webgpu";
 import { Conductor } from "../../src/conductor.js";
-import { Rack, bindKey, localStorageAdapter } from "../../src/rack.js";
+import { Rack, bindKey, connectRackBridge, localStorageAdapter } from "../../src/rack.js";
 import { BatchedText, Text } from "../../src/sdf-text/index.js";
 import { EXHIBITS } from "./exhibits.js";
 import {
@@ -51,6 +51,7 @@ const conductor = new Conductor(TEMPO);
 const rack = new Rack({ storage: localStorageAdapter("cinematicGalleryRack") });
 rack.add("/room/bpm", bindKey(conductor, "bpm"), { min: 60, max: 160, unit: "bpm" });
 rack.add("/room/swing", bindKey(conductor, "swing"), { min: 0, max: 0.6 });
+if (new URLSearchParams(location.search).has("bridge")) connectRackBridge(rack);
 window.rack = rack;
 
 // The techno floor: a four-on-the-floor kick envelope every piece and the
