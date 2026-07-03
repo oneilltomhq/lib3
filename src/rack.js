@@ -168,14 +168,17 @@ export class Rack {
   session() { return structuredClone(this._session); }
   clearSession() { this._session = []; this._sessionStart = this._now(); }
 
-  /** Time-accurate replay of a recorded session. Replayed commands are NOT
-   * re-recorded. */
+  /** Time-accurate replay of a recorded session. Ramps scale with speed
+   * (a 2x replay glides 2x faster). Replayed commands are NOT re-recorded. */
   async replay(session, speed = 1) {
     const t0 = this._now();
     for (const entry of session) {
       const wait = entry.t / speed - (this._now() - t0);
       if (wait > 0) await new Promise((res) => setTimeout(res, wait));
-      this.dispatch(entry.cmd, "replay", false);
+      const cmd = speed !== 1 && entry.cmd.type === "set" && entry.cmd.ramp
+        ? { ...entry.cmd, ramp: entry.cmd.ramp / speed }
+        : entry.cmd;
+      this.dispatch(cmd, "replay", false);
     }
   }
 
