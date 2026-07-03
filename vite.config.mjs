@@ -148,6 +148,7 @@ export default defineConfig(({ mode }) => {
             lissajous: resolve(__dirname, "src/lissajous.js"),
             journey: resolve(__dirname, "src/journey.js"),
             hydra: resolve(__dirname, "src/hydra/index.js"),
+            rack: resolve(__dirname, "src/rack.js"),
             sdf: resolve(__dirname, "src/sdf/index.js"),
             sdfText: resolve(__dirname, "src/sdf-text/index.js"),
           },

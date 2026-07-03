@@ -31,6 +31,9 @@
     "./hydra": {
       "import": "./dist/hydra.js"
     },
+    "./rack": {
+      "import": "./dist/rack.js"
+    },
     "./sdf": {
       "import": "./dist/sdf.js"
     },
@@ -47,7 +50,7 @@
     "build:examples": "vite build --mode examples",
     "dev": "vite --mode examples",
     "prepublishOnly": "pnpm build",
-    "test": "node --test test/sdf-pipeline.test.mjs test/journey.test.mjs test/conductor.test.mjs test/hydra.test.mjs"
+    "test": "node --test test/sdf-pipeline.test.mjs test/journey.test.mjs test/conductor.test.mjs test/hydra.test.mjs test/rack.test.mjs"
   },
   "keywords": [],
   "author": "",

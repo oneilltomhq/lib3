@@ -385,6 +385,34 @@ A standalone ping-pong feedback buffer: `setChain(chain)`,
 `updateUniforms(t)`, `render(renderer)`, `texNode` to sample. Slots into any
 host loop (e.g. an exhibit runner).
 
+### Rack (`@oneilltom/lib3/rack`)
+
+The control plane — a modular-synth jack panel for a scene's parameters. Pure
+JS. A `Rack` owns a flat address space (`/knot/roll`); params bind to live
+state (TSL uniforms via `bindUniform`, journey values via
+`bindKey`/`addValues`, any get/set pair). Every mutation flows through one
+recorded dispatch channel, so sessions replay exactly and any moment can be
+lifted back out as a snapshot.
+
+```javascript
+import { Rack, bindUniform } from "@oneilltom/lib3/rack";
+
+const rack = new Rack();
+rack.add("/knot/roll", bindUniform(uRoll), { min: 0, max: 2, unit: "rad/s" });
+// per frame: rack.update(dt) — the render loop is the ramp clock
+
+await rack.set("/knot/roll", 1.2, 2000); // glide over 2s (linear, clamped)
+rack.pulse("/knot/hit", 90);             // momentary trigger
+rack.params(); rack.get(path);           // introspection
+rack.snap("tuned"); await rack.apply("tuned"); // snapshots: the unit of keeping
+rack.session(); await rack.replay(session, 2); // recorded stream, 2x replay
+rack.lift(session, 410, "6m50s");        // config at a moment → snapshot
+```
+
+Path-matched values carry over when a scene rebuilds and re-adds its params.
+`rack.handle(type, fn)` extends the command vocabulary; `localStorageAdapter`
+persists snapshots in a page.
+
 ## Examples
 
 The package includes 13+ examples demonstrating various techniques:

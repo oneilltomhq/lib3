@@ -41,6 +41,8 @@ export function exampleTSLFunction(input) {
 // Re-export from other files, e.g.:
 // export * from './myOtherFunction.js';
 
+export { Rack, bindUniform, bindKey, localStorageAdapter } from "./rack.js";
+
 export {
   TslSource,
   registerTransform,
