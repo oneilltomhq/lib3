@@ -47,7 +47,7 @@ const ctrl = {
   epiBeats: 8, // beats per orbit
   epiRatio: 3, // counter-circle speed ratio (the epicycle)
   follow: 2.2, // head-follow spring frequency (Hz)
-  lag: 0.82, // per-segment frequency falloff — how deep the pulse arrives late
+  lag: 0.6, // tail speed as a fraction of head speed — how late the pulse arrives below
   ring: 0.35, // damping ratio: <1 rings (giegling), →1 tight (ostgut)
   fleshAmt: 1, // 0 = raw skeleton pose (A/B the flesh live)
   stiff: 30, // flesh spring to pose
@@ -176,7 +176,7 @@ rack.add("/head/epiSize", bindKey(ctrl, "epiSize"), { min: 0, max: 1 });
 rack.add("/head/epiBeats", bindKey(ctrl, "epiBeats"), { min: 1, max: 16, step: 1 });
 rack.add("/head/epiRatio", bindKey(ctrl, "epiRatio"), { min: 0, max: 6 });
 rack.add("/chain/follow", bindKey(ctrl, "follow"), { min: 0.5, max: 8, unit: "Hz" });
-rack.add("/chain/lag", bindKey(ctrl, "lag"), { min: 0.5, max: 1 });
+rack.add("/chain/lag", bindKey(ctrl, "lag"), { min: 0.25, max: 1 });
 rack.add("/chain/ring", bindKey(ctrl, "ring"), { min: 0.1, max: 1.2 });
 rack.add("/flesh/amount", bindKey(ctrl, "fleshAmt"), { min: 0, max: 1 });
 rack.add("/flesh/stiff", bindKey(ctrl, "stiff"), { min: 4, max: 120 });
@@ -184,14 +184,15 @@ rack.add("/flesh/damp", bindKey(ctrl, "fleshDamp"), { min: 0.5, max: 12 });
 rack.add("/arc/depth", bindKey(ctrl, "arc"), { min: 0, max: 1 });
 if (new URLSearchParams(location.search).has("bridge")) connectRackBridge(rack);
 window.rack = rack;
+window.__spine = { sx, sz, sw, sy }; // debug/verification hook
 
 // two ends of the reference spectrum — feel the difference in the body
 const PRESETS = {
   giegling: { "/head/impulse": 0.38, "/head/anticipate": 0.5, "/chain/follow": 1.6,
-    "/chain/lag": 0.74, "/chain/ring": 0.22, "/flesh/stiff": 16, "/flesh/damp": 3,
+    "/chain/lag": 0.45, "/chain/ring": 0.24, "/flesh/stiff": 16, "/flesh/damp": 3,
     "/beat/swing": 0.22, "/beat/bpm": 118, "/head/epiBeats": 12, "/head/epiRatio": 2.2 },
   ilian: { "/head/impulse": 0.82, "/head/anticipate": 0.2, "/chain/follow": 3.6,
-    "/chain/lag": 0.9, "/chain/ring": 0.55, "/flesh/stiff": 60, "/flesh/damp": 6,
+    "/chain/lag": 0.8, "/chain/ring": 0.55, "/flesh/stiff": 60, "/flesh/damp": 6,
     "/beat/swing": 0.05, "/beat/bpm": 132, "/head/epiBeats": 6, "/head/epiRatio": 4 },
 };
 
@@ -285,17 +286,26 @@ renderer.init().then(async () => {
     sy[0].target = ctrl.anticipate * 0.14 * f * f * f;
     sw[0].target = 1;
 
-    // the chain: each segment chases the one above; frequency falls off with
-    // lag so the pulse arrives later and softer the further it travels
+    // the chain: a damped STRING, not a cascade. Each interior segment chases
+    // the midpoint of its neighbours (snapshot first, so the pass is
+    // symmetric); the tail chases the one above. One-directional
+    // follow-the-leader was 16 resonant filters in series — Q-gain per stage
+    // MULTIPLIES down a cascade and the giegling preset self-oscillated into
+    // a 70x flat-spin. A string disperses energy both ways and just… dances.
     for (let k = 0; k < K; k++) {
-      const freq = ctrl.follow * Math.pow(ctrl.lag, k);
+      const freq = ctrl.follow * Math.pow(ctrl.lag, k / (K - 1));
       for (const springs of [sx, sz, sy, sw]) {
         const s = springs[k];
         s.freq = freq;
         s.zeta = ctrl.ring;
-        if (k > 0) s.target = springs[k - 1].value;
-        s.update(dt);
+        if (k > 0) {
+          const prev = springs[k - 1].value;
+          s.target = k < K - 1 ? (prev + springs[k + 1].value) / 2 : prev;
+        }
       }
+    }
+    for (let k = 0; k < K; k++) {
+      for (const springs of [sx, sz, sy, sw]) springs[k].update(dt);
       segs.array[k].set(sx[k].value, sz[k].value, sw[k].value, sy[k].value);
     }
 
