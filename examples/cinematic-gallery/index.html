@@ -2,7 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Raymarching Head - Cinema (Parent/Child Pass)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>lib3 — Cinematic Gallery</title>
     <script type="module" src="./main.js"></script>
     <style>
       html,
@@ -11,15 +12,67 @@
         height: 100%;
         overflow: hidden;
         background: #000;
+        font: 13px/1.45 system-ui, sans-serif;
       }
       canvas {
         display: block;
         width: 100%;
         height: 100%;
       }
+      #help {
+        position: fixed;
+        top: 12px;
+        left: 14px;
+        color: #666;
+        letter-spacing: 0.02em;
+        user-select: none;
+        pointer-events: none;
+      }
+      #loading {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        color: #888;
+        letter-spacing: 0.06em;
+        background: #000;
+      }
+      #caption {
+        position: fixed;
+        left: 50%;
+        bottom: 26px;
+        transform: translateX(-50%) translateY(8px);
+        max-width: 560px;
+        padding: 10px 16px;
+        color: #cfcfcf;
+        background: rgba(8, 8, 10, 0.72);
+        border: 1px solid #26262b;
+        border-radius: 6px;
+        opacity: 0;
+        transition: opacity 0.35s ease, transform 0.35s ease;
+        pointer-events: none;
+      }
+      #caption.visible {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+      #caption-title {
+        font-weight: 600;
+        color: #fff;
+        margin-bottom: 2px;
+      }
     </style>
   </head>
   <body>
     <canvas id="canvas"></canvas>
+    <div id="help">
+      space next &nbsp;·&nbsp; 1–5 jump &nbsp;·&nbsp; esc overview
+      &nbsp;·&nbsp; click a piece &nbsp;·&nbsp; drag to orbit
+    </div>
+    <div id="caption">
+      <div id="caption-title"></div>
+      <div id="caption-plaque"></div>
+    </div>
+    <div id="loading">building the gallery…</div>
   </body>
 </html>

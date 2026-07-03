@@ -1,21 +1,91 @@
-import headURL from "@assets/head256x256x109.zip?url";
+// examples/cinematic-gallery/main.js
+// The gallery room: real 3D pieces stand on plinths, screen-native pieces
+// hang as framed TVs — both built from the exhibit registry. The camera walks
+// between authored poses; screens re-render on a budget granted by where the
+// visitor is looking, while in-room objects pace their own compute and pay
+// raymarch cost only for the pixels they cover.
+//
+//   space        next exhibit        shift+space   previous
+//   1–5          jump to exhibit     esc           overview
+//   click piece  focus it            drag          free orbit
+
+import { color, normalView, uniform, uv } from "three/tsl";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { unzipSync } from "three/addons/libs/fflate.module.js";
-import { texture3D, uniform, pass, color, screenUV } from "three/tsl";
-import { knotMorphPosition } from "../../src/knotMorph.js";
-import {
-  buildSphericalWaveCopyKernel,
-  averageIntensityProjection,
-} from "../../src/index.js";
 import * as THREE from "three/webgpu";
+import { Conductor } from "../../src/conductor.js";
+import { BatchedText, Text } from "../../src/sdf-text/index.js";
+import { EXHIBITS } from "./exhibits.js";
+import {
+  CameraRig,
+  ExhibitRunner,
+  computeScreenDimensions,
+  createFrame,
+  createScreenMesh,
+  fitToPlane,
+  fitToSphere,
+} from "./gallery.js";
 
-// Choose cinematic aspect based on viewport orientation: 16:9 (landscape) or 9:16 (portrait)
-function getCinematicAspect(w, h) {
-  return w >= h ? 16 / 9 : 9 / 16;
-}
-let childAspect = getCinematicAspect(window.innerWidth, window.innerHeight);
+const SCREEN_ASPECT = 16 / 9;
+const SCREEN_LONG_SIDE = 1.7;
+const EXHIBIT_Y = 1.3; // centre height of screens and floating objects
+const PLINTH = { w: 0.5, h: 0.55 };
+const ARC_RADIUS = 3.6;
+const ARC_SPREAD = (112 * Math.PI) / 180;
+const TV_RT = { width: 1600, height: 900 };
 
-// Parent (main) scene and camera
+// Render rates (Hz) granted to SCREENS by the budget manager; in-room objects
+// render with the parent scene every frame. Focused = every frame.
+const RATES = { ambient: 20, idle: 8 };
+
+// One clock for the whole room. Every piece registers its own euclidean
+// voice against this — different ratios, same root, so the room grooves
+// together instead of five pendulums swinging independently.
+const TEMPO = { bpm: 96, swing: 0.12 };
+const conductor = new Conductor(TEMPO);
+
+// The techno floor: a four-on-the-floor kick envelope every piece and the
+// room lighting duck to. depth 0 = off, 1 = full blackout between beats.
+const PUMP = { light: 0.35, cone: 0.55, sharp: 5 };
+const uPump = uniform(1); // conductor.pump(), written once per frame
+
+// Museum lighting: the room is dark and the pools of light are the
+// composition. One warm halogen spot hangs over each piece.
+const LIGHT = {
+  color: 0xffe3c0,
+  height: 3.9,
+  angle: 0.3,
+  penumbra: 0.6,
+  decay: 1.6, // tighter pools — neighbours shouldn't merge into one wash
+  intensity: 30,
+  coneOpacity: 0.02, // faked volumetric shaft; 0 to remove the beams
+  coneRadius: 0.7, // beam sits inside the light cone, not filling it
+};
+
+// Museum-label lecterns: an sdf-text plaque on a post in front of each plinth
+const PLAQUE = {
+  w: 0.62,
+  h: 0.42,
+  y: 0.52, // top of the post = bottom hinge of the plate
+  standOff: 0.55, // metres from the plinth centre toward the room centre
+  tilt: -0.42, // lectern lean — face tips up toward standing eye height
+};
+
+const hudCaption = document.getElementById("caption");
+const hudTitle = document.getElementById("caption-title");
+const hudPlaque = document.getElementById("caption-plaque");
+const hudLoading = document.getElementById("loading");
+
+// ---- renderer / parent scene ---------------------------------------------------
+const renderer = new THREE.WebGPURenderer({
+  canvas: document.getElementById("canvas"),
+  antialias: true,
+});
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setClearColor(0x000000);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
+
 const parentScene = new THREE.Scene();
 const parentCamera = new THREE.PerspectiveCamera(
   60,
@@ -23,457 +93,478 @@ const parentCamera = new THREE.PerspectiveCamera(
   0.1,
   1000
 );
-parentCamera.position.set(0, 1.25, 2.5);
+parentCamera.position.set(0, 1.6, 4.8);
 
-// Child A (offscreen) scene and camera - Raymarch Head
-const childScene = new THREE.Scene();
-const childCamera = new THREE.PerspectiveCamera(60, childAspect, 0.05, 1000);
-childCamera.position.set(0.0, 0.0, 1.2);
-childCamera.updateProjectionMatrix();
-
-// Child B (offscreen) scene and camera - Knot Morph
-const childScene2 = new THREE.Scene();
-const childCamera2 = new THREE.PerspectiveCamera(60, childAspect, 0.05, 1000);
-childCamera2.position.set(0, 0, 5);
-childCamera2.updateProjectionMatrix();
-
-// Renderer
-const renderer = new THREE.WebGPURenderer({
-  canvas: document.getElementById("canvas"),
-});
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setClearColor(0x000000);
-
-// Parent controls (user controls)
 const controls = new OrbitControls(parentCamera, renderer.domElement);
-controls.target.set(0, 1.0, 0);
+controls.target.set(0, 1.15, -0.8);
 controls.update();
 
-// Helpers
-function computeScreenDimensions(aspect, longSide) {
-  const width = aspect >= 1 ? longSide : longSide * aspect;
-  const height = aspect >= 1 ? longSide / aspect : longSide;
-  return { width, height };
+const rig = new CameraRig(parentCamera, controls);
+
+// ---- the room --------------------------------------------------------------------
+// A polished dark floor and almost no fill light: distance fades to black on
+// its own, and each piece stands in its own pool of halogen.
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(30, 30),
+  new THREE.MeshStandardMaterial({
+    color: 0x17171b,
+    roughness: 0.32,
+    metalness: 0.08,
+  })
+);
+floor.rotation.x = -Math.PI / 2;
+parentScene.add(floor);
+
+parentScene.add(new THREE.AmbientLight(0xffffff, 0.05));
+const fill = new THREE.DirectionalLight(0x93a4c4, 0.12);
+fill.position.set(0, 3, 6);
+parentScene.add(fill);
+
+// Faked volumetric shaft under each lamp, in the projector-beams language:
+// brightest at the source, dissolving before the floor, vanishing at the
+// silhouette edges.
+const coneMat = new THREE.MeshBasicNodeMaterial({
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+});
+{
+  const v = uv().y;
+  const shaft = v.smoothstep(0.0, 0.45).mul(v.mul(0.8).add(0.2));
+  const core = normalView.z.abs().pow(1.6);
+  const duck = uPump.mul(PUMP.cone).add(1 - PUMP.cone);
+  coneMat.colorNode = color(LIGHT.color).mul(
+    shaft.mul(core).mul(LIGHT.coneOpacity).mul(duck)
+  );
 }
 
-function createPortalPlane({
-  width,
-  height,
-  scene,
-  camera,
-  uvMode = "screen",
-}) {
-  const geo = new THREE.PlaneGeometry(width, height);
-  const mat = new THREE.MeshBasicNodeMaterial();
-  mat.colorNode =
-    uvMode === "screen"
-      ? pass(scene, camera).context({ getUV: () => screenUV })
-      : pass(scene, camera).getTextureNode();
-  mat.transparent = false;
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.material.side = THREE.DoubleSide;
-  mesh.renderOrder = 1;
-  return mesh;
-}
+const spots = []; // pumped per frame
 
-function createFrame({
-  width,
-  height,
-  thickness = 0.06,
-  depth = 0.05,
-  material,
-}) {
-  const group = new THREE.Group();
-  const horizLen = width + thickness * 2;
-  const top = new THREE.Mesh(
-    new THREE.BoxGeometry(horizLen, thickness, depth),
-    material
+function addExhibitLight(x, z) {
+  const spot = new THREE.SpotLight(
+    LIGHT.color,
+    LIGHT.intensity,
+    LIGHT.height * 2.2,
+    LIGHT.angle,
+    LIGHT.penumbra,
+    LIGHT.decay
   );
-  const bot = new THREE.Mesh(
-    new THREE.BoxGeometry(horizLen, thickness, depth),
-    material
-  );
-  const left = new THREE.Mesh(
-    new THREE.BoxGeometry(thickness, height, depth),
-    material
-  );
-  const right = new THREE.Mesh(
-    new THREE.BoxGeometry(thickness, height, depth),
-    material
-  );
-  top.position.set(0, height / 2 + thickness / 2, depth / 2);
-  bot.position.set(0, -height / 2 - thickness / 2, depth / 2);
-  left.position.set(-width / 2 - thickness / 2, 0, depth / 2);
-  right.position.set(width / 2 + thickness / 2, 0, depth / 2);
-  group.add(top, bot, left, right);
-  return group;
-}
+  spot.position.set(x, LIGHT.height, z);
+  spot.target.position.set(x, 0, z);
+  parentScene.add(spot, spot.target);
+  spots.push(spot);
 
-// Load volumetric dataset and set up compute + child scene volume render
-new THREE.FileLoader()
-  .setResponseType("arraybuffer")
-  .load(headURL, async function (data) {
-    const zip = unzipSync(new Uint8Array(data));
-    const array = new Uint8Array(zip["head256x256x109"].buffer);
-
-    const width = 256;
-    const height = 256;
-    const depth = 109;
-
-    // Source texture
-    const sourceTexture = new THREE.Data3DTexture(array, width, height, depth);
-    sourceTexture.format = THREE.RedFormat;
-    sourceTexture.minFilter = THREE.LinearFilter;
-    sourceTexture.magFilter = THREE.LinearFilter;
-    sourceTexture.unpackAlignment = 1;
-    sourceTexture.needsUpdate = true;
-
-    // Destination storage texture
-    const storageTexture = new THREE.Storage3DTexture(width, height, depth);
-    storageTexture.generateMipmaps = false;
-    storageTexture.name = "headWave";
-
-    // Uniforms for wave compute
-    const waveAmplitude = uniform(0.5);
-    const waveSpeed = uniform(2);
-    const noiseScale = uniform(0.64);
-    const noiseAmplitude = uniform(0.6);
-    const intensityScale = uniform(0.25);
-    const phaseUniform = uniform(0.0);
-
-    // Build compute kernel once, feed uniforms each frame
-    const waveKernel = buildSphericalWaveCopyKernel({
-      width,
-      height,
-      depth,
-      storageTexture,
-      sourceTextureNode: texture3D(sourceTexture, null, 0),
-      waveAmplitude,
-      noiseScale,
-      noiseAmplitude,
-      intensityScale,
-      phase: phaseUniform,
-    });
-
-    const computeNode = waveKernel()
-      .compute(width * height * depth)
-      .setName("copyHead3DDisplaced");
-
-    await renderer.init();
-    await renderer.computeAsync(computeNode);
-
-    // Raymarch material in child scene
-    const steps = uniform(4);
-    const intensityScaleView = uniform(0.2);
-
-    const childMaterial = new THREE.NodeMaterial();
-    childMaterial.colorNode = averageIntensityProjection({
-      texture: texture3D(storageTexture, null, 0),
-      steps,
-      intensityScale: intensityScaleView,
-    });
-    childMaterial.side = THREE.BackSide;
-    childMaterial.transparent = true;
-
-    const childMesh = new THREE.Mesh(
-      new THREE.BoxGeometry(1, 1, 1),
-      childMaterial
+  if (LIGHT.coneOpacity > 0) {
+    const baseRadius = Math.tan(LIGHT.angle) * LIGHT.height * LIGHT.coneRadius;
+    const cone = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05, baseRadius, LIGHT.height, 32, 1, true),
+      coneMat
     );
-    childMesh.scale.set(1, -1, depth / width);
-    childScene.add(childMesh);
+    cone.position.set(x, LIGHT.height / 2, z);
+    parentScene.add(cone);
+  }
+}
 
-    // Screen and frame creation via helpers
-    const longSide = 1.6;
-    const { width: initialWidth, height: initialHeight } =
-      computeScreenDimensions(childAspect, longSide);
+// ---- build exhibits from the registry --------------------------------------------
+const { width: screenW, height: screenH } = computeScreenDimensions(
+  SCREEN_ASPECT,
+  SCREEN_LONG_SIDE
+);
+const frameMat = new THREE.MeshStandardMaterial({
+  color: 0x222222,
+  roughness: 1,
+});
+const plinthMat = new THREE.MeshStandardMaterial({
+  color: 0x1a1a1f,
+  roughness: 0.5,
+  metalness: 0.2,
+});
+const plaqueMat = new THREE.MeshStandardMaterial({
+  color: 0x0e0e12,
+  roughness: 0.45,
+  metalness: 0.3,
+});
 
-    const screen = createPortalPlane({
-      width: initialWidth,
-      height: initialHeight,
-      scene: childScene,
-      camera: childCamera,
-      uvMode: "screen",
+// One glyph pool for every label in the room — the plaques are lib3 too
+// (sdf-text: canvas-rasterized glyphs, EDT distance fields, instanced quads).
+const plaqueText = new BatchedText(16, 2048, undefined, {
+  fontFamily: "ui-monospace, Menlo, monospace",
+  outlineWidth: 0,
+});
+plaqueText.frustumCulled = false;
+parentScene.add(plaqueText);
+
+function addPlaque(entry, x, z) {
+  const dir = new THREE.Vector3(-x, 0, -z).normalize();
+  const stand = new THREE.Group();
+  stand.position.set(
+    x + dir.x * PLAQUE.standOff,
+    0,
+    z + dir.z * PLAQUE.standOff
+  );
+  stand.rotation.y = Math.atan2(dir.x, dir.z);
+  parentScene.add(stand);
+
+  const post = new THREE.Mesh(
+    new THREE.BoxGeometry(0.04, PLAQUE.y, 0.04),
+    plaqueMat
+  );
+  post.position.y = PLAQUE.y / 2;
+  stand.add(post);
+
+  const tilt = new THREE.Group();
+  tilt.position.y = PLAQUE.y;
+  tilt.rotation.x = PLAQUE.tilt;
+  stand.add(tilt);
+
+  const plate = new THREE.Mesh(
+    new THREE.BoxGeometry(PLAQUE.w, PLAQUE.h, 0.016),
+    plaqueMat
+  );
+  plate.position.y = PLAQUE.h / 2 - 0.02;
+  tilt.add(plate);
+
+  const title = new Text();
+  title.text = entry.title.toUpperCase();
+  title.fontSize = 0.042;
+  title.letterSpacing = 0.006; // world units, not ems — ~0.15em of tracking
+  title.anchorX = "left";
+  title.anchorY = "top";
+  title.color.set(0xe8e8ec);
+  title.position.set(-PLAQUE.w / 2 + 0.05, PLAQUE.h - 0.07, 0.013);
+  tilt.add(title);
+  plaqueText.addText(title);
+
+  const body = new Text();
+  body.text = entry.plaque;
+  body.fontSize = 0.026;
+  body.lineHeight = 1.5;
+  body.maxWidth = PLAQUE.w - 0.1;
+  body.anchorX = "left";
+  body.anchorY = "top";
+  body.color.set(0x8f8f98);
+  body.position.set(-PLAQUE.w / 2 + 0.05, PLAQUE.h - 0.14, 0.013);
+  tilt.add(body);
+  plaqueText.addText(body);
+}
+
+// One item per registry entry, in order. Screens carry a runner (offscreen
+// RT + budget); objects carry live content and a bounding sphere for framing.
+const items = [];
+
+// Temporary orientation check: ?fliptest replaces the registry with two
+// screens (tv + portal) showing an up-arrow, cheap enough for software WebGPU.
+function makeArrowExhibit({ aspect }) {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xffffff);
+  const camera = new THREE.PerspectiveCamera(60, aspect, 0.1, 10);
+  camera.position.set(0, 0, 1);
+
+  const cnv = document.createElement("canvas");
+  cnv.width = 512;
+  cnv.height = 288;
+  const ctx = cnv.getContext("2d");
+  ctx.fillStyle = "#ddd";
+  ctx.fillRect(0, 0, 512, 288);
+  ctx.fillStyle = "#c00";
+  ctx.font = "bold 60px sans-serif";
+  ctx.fillText("TOP", 20, 70);
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+  ctx.moveTo(256, 30);
+  ctx.lineTo(200, 140);
+  ctx.lineTo(312, 140);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillRect(240, 140, 32, 110);
+  const tex = new THREE.CanvasTexture(cnv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+
+  const h = 2 * Math.tan((camera.fov * Math.PI) / 360);
+  const plane = new THREE.Mesh(
+    new THREE.PlaneGeometry(h * aspect, h),
+    new THREE.MeshBasicMaterial({ map: tex })
+  );
+  scene.add(plane);
+  return Promise.resolve({ scene, camera });
+}
+
+const urlParams = new URLSearchParams(location.search);
+const skipIds = (urlParams.get("skip") || "").split(",").filter(Boolean);
+const REGISTRY = urlParams.has("fliptest")
+  ? [
+      { id: "tv-test", title: "TV", plaque: "tv", mode: "tv", make: makeArrowExhibit },
+      { id: "portal-test", title: "Portal", plaque: "portal", mode: "portal", make: makeArrowExhibit },
+    ]
+  : EXHIBITS.filter((e) => !skipIds.includes(e.id));
+
+function portalSize() {
+  const pr = Math.min(window.devicePixelRatio, 2);
+  return {
+    width: Math.floor(window.innerWidth * pr),
+    height: Math.floor(window.innerHeight * pr),
+  };
+}
+
+function arcPosition(i, n) {
+  const angle = n === 1 ? 0 : (i / (n - 1) - 0.5) * ARC_SPREAD;
+  return {
+    x: Math.sin(angle) * ARC_RADIUS,
+    z: -Math.cos(angle) * ARC_RADIUS,
+  };
+}
+
+async function buildExhibits() {
+  const n = REGISTRY.length;
+  for (let i = 0; i < n; i++) {
+    const entry = REGISTRY[i];
+    hudLoading.textContent = `placing ${entry.title.toLowerCase()} — ${i + 1}/${n}`;
+
+    const { x, z } = arcPosition(i, n);
+
+    if (entry.mode === "object") {
+      const content = await entry.make({ conductor });
+      const center = new THREE.Vector3(x, EXHIBIT_Y, z);
+      content.group.position.copy(center);
+      parentScene.add(content.group);
+
+      const plinth = new THREE.Mesh(
+        new THREE.BoxGeometry(PLINTH.w, PLINTH.h, PLINTH.w),
+        plinthMat
+      );
+      plinth.position.set(x, PLINTH.h / 2, z);
+      parentScene.add(plinth);
+
+      addExhibitLight(x, z);
+      addPlaque(entry, x, z);
+
+      // invisible raycast proxy so clicking points/volumes works
+      const hitProxy = new THREE.Mesh(
+        new THREE.SphereGeometry(content.radius, 12, 8),
+        new THREE.MeshBasicMaterial({
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+        })
+      );
+      hitProxy.position.copy(center);
+      parentScene.add(hitProxy);
+
+      items.push({ entry, kind: "object", content, center, hitMesh: hitProxy });
+      continue;
+    }
+
+    // screens (tv / portal)
+    const isPortal = entry.mode === "portal";
+    const aspect = isPortal
+      ? window.innerWidth / window.innerHeight
+      : SCREEN_ASPECT;
+    const content = await entry.make({ aspect, conductor });
+
+    const size = isPortal ? portalSize() : TV_RT;
+    const runner = new ExhibitRunner({
+      entry,
+      content,
+      width: size.width,
+      height: size.height,
     });
-    screen.position.set(0, 1.0, 0);
+
+    const screen = createScreenMesh({
+      width: screenW,
+      height: screenH,
+      rtTexture: runner.rt.texture,
+      mode: entry.mode,
+    });
+    screen.position.set(x, EXHIBIT_Y, z);
+    screen.lookAt(0, EXHIBIT_Y, 1.5);
     parentScene.add(screen);
 
-    const frameDepth = 0.05;
-    const frameThickness = 0.06;
-    const frameMat = new THREE.MeshStandardMaterial({
-      color: 0x222222,
-      roughness: 1,
-    });
-    let frameGroup = createFrame({
-      width: initialWidth,
-      height: initialHeight,
-      thickness: frameThickness,
-      depth: frameDepth,
+    const frame = createFrame({
+      width: screenW,
+      height: screenH,
       material: frameMat,
     });
-    frameGroup.position.copy(screen.position);
-    parentScene.add(frameGroup);
+    frame.position.copy(screen.position);
+    frame.quaternion.copy(screen.quaternion);
+    parentScene.add(frame);
 
-    const screen2 = createPortalPlane({
-      width: initialWidth,
-      height: initialHeight,
-      scene: childScene2,
-      camera: childCamera2,
-      uvMode: "mesh",
-    });
-    screen2.position.set(2.0, 1.0, 0);
-    parentScene.add(screen2);
+    addExhibitLight(x, z);
+    addPlaque(entry, x, z);
 
-    let frameGroup2 = createFrame({
-      width: initialWidth,
-      height: initialHeight,
-      thickness: frameThickness,
-      depth: frameDepth,
-      material: frameMat,
-    });
-    frameGroup2.position.copy(screen2.position);
-    parentScene.add(frameGroup2);
+    runner.screenMesh = screen;
+    items.push({ entry, kind: "screen", runner, hitMesh: screen });
+  }
+}
 
-    // Camera state management (default, fit to screen A, fit to screen B)
-    const defaultCamPos = parentCamera.position.clone();
-    const defaultTarget = controls.target.clone();
+// ---- focus / camera states --------------------------------------------------------
+const overviewPose = {
+  position: parentCamera.position.clone(),
+  target: controls.target.clone(),
+};
+let focusedIndex = -1; // -1 = overview
 
-    function fitToPlane(mesh, options = {}) {
-      const { cover = false, overscan = 1.02 } = options; // cover=true = fill like CSS background-size: cover
-      const params = mesh.geometry.parameters || { width: 1, height: 1 };
-      const rectWidth = (params.width || 1) * (mesh.scale?.x || 1);
-      const rectHeight = (params.height || 1) * (mesh.scale?.y || 1);
+function setFocus(index) {
+  focusedIndex = index;
+  if (index === -1) {
+    rig.flyTo(overviewPose);
+    hudCaption.classList.remove("visible");
+    return;
+  }
+  const item = items[index];
+  const pose =
+    item.kind === "object"
+      ? fitToSphere(item.center, item.content.radius, parentCamera, {
+          margin: item.entry.focusMargin,
+        })
+      : fitToPlane(item.runner.screenMesh, parentCamera);
+  rig.flyTo(pose);
+  hudTitle.textContent = item.entry.title;
+  hudPlaque.textContent = item.entry.plaque;
+  hudCaption.classList.add("visible");
+}
 
-      const center = new THREE.Vector3();
-      mesh.getWorldPosition(center);
+function cycleFocus(step) {
+  // ... -1 -> 0 -> 1 -> ... -> n-1 -> -1 -> ...
+  const n = items.length;
+  const next = ((focusedIndex + 1 + step + n + 1) % (n + 1)) - 1;
+  setFocus(next);
+}
 
-      const normal = new THREE.Vector3(0, 0, 1);
-      const q = new THREE.Quaternion();
-      mesh.getWorldQuaternion(q);
-      normal.applyQuaternion(q);
+window.addEventListener("keydown", (e) => {
+  if (e.code === "Space") {
+    e.preventDefault();
+    cycleFocus(e.shiftKey ? -1 : 1);
+  } else if (e.code === "Escape") {
+    setFocus(-1);
+  } else if (/^Digit[1-9]$/.test(e.code)) {
+    const i = Number(e.code.slice(5)) - 1;
+    if (i < items.length) setFocus(i);
+  }
+});
 
-      const vFov = (parentCamera.fov * Math.PI) / 180;
-      const fovH = 2 * Math.atan(Math.tan(vFov / 2) * parentCamera.aspect);
-      const distH = rectHeight / 2 / Math.tan(vFov / 2);
-      const distW = rectWidth / 2 / Math.tan(fovH / 2);
-      // contain (fit): max; cover (fill): min
-      let distance = cover ? Math.min(distH, distW) : Math.max(distH, distW);
-      // For cover, move slightly closer to ensure no border shows; for contain, a tiny margin could be applied if desired
-      distance = cover ? distance / overscan : distance;
+// click a piece to focus it (ignore drags)
+const raycaster = new THREE.Raycaster();
+let downAt = null;
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  downAt = { x: e.clientX, y: e.clientY };
+});
+renderer.domElement.addEventListener("pointerup", (e) => {
+  if (!downAt) return;
+  const moved = Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y);
+  downAt = null;
+  if (moved > 6) return;
+  const ndc = new THREE.Vector2(
+    (e.clientX / window.innerWidth) * 2 - 1,
+    -(e.clientY / window.innerHeight) * 2 + 1
+  );
+  raycaster.setFromCamera(ndc, parentCamera);
+  const hits = raycaster.intersectObjects(items.map((it) => it.hitMesh));
+  if (hits.length === 0) return;
+  const index = items.findIndex((it) => it.hitMesh === hits[0].object);
+  if (index !== -1) setFocus(index);
+});
 
-      // Place the camera on the same side of the plane as it currently is to avoid flips
-      const toCamera = new THREE.Vector3().subVectors(
-        parentCamera.position,
-        center
-      );
-      const side = Math.sign(toCamera.dot(normal)) || 1; // +1 if in front (along normal), -1 if behind
-      const position = new THREE.Vector3()
-        .copy(center)
-        .addScaledVector(normal, side * distance);
-      const target = center.clone();
-      return { position, target };
-    }
+// ---- resize -----------------------------------------------------------------------
+window.addEventListener("resize", () => {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  parentCamera.aspect = window.innerWidth / window.innerHeight;
+  parentCamera.updateProjectionMatrix();
+  for (const item of items) {
+    if (item.kind !== "screen" || item.entry.mode !== "portal") continue;
+    const size = portalSize();
+    item.runner.setSize(size.width, size.height);
+    item.runner.content.setAspect?.(window.innerWidth / window.innerHeight);
+  }
+});
 
-    let camAnim = null;
-    // Easing function for camera transitions (snappy, natural feel)
-    function easeOutCubic(x) {
-      return 1 - Math.pow(1 - x, 3);
-    }
+// ---- loop ------------------------------------------------------------------------
+const clock = new THREE.Clock();
 
-    function animateCameraTo({ position, target }, duration = 0.5) {
-      camAnim = {
-        t: 0,
-        duration,
-        ease: easeOutCubic,
-        fromPos: parentCamera.position.clone(),
-        toPos: position.clone(),
-        fromTarget: controls.target.clone(),
-        toTarget: target.clone(),
-      };
-    }
+renderer.init().then(async () => {
+  await buildExhibits();
 
-    const camStates = [
-      () => ({ position: defaultCamPos, target: defaultTarget }),
-      () => fitToPlane(screen, { cover: true, overscan: 1.06 }),
-      () => fitToPlane(screen2, { cover: true, overscan: 1.06 }),
-    ];
+  // plaques are static: lay out glyphs and bake their matrices once
+  parentScene.updateMatrixWorld(true);
+  plaqueText.sync();
 
-    function setCameraState(index) {
-      const state = camStates[index % camStates.length]();
-      animateCameraTo(state);
-    }
+  hudLoading.remove();
 
-    let cameraStateIndex = 0; // 0 default, 1 screen A, 2 screen B
-    function cycleCameraState() {
-      cameraStateIndex = (cameraStateIndex + 1) % 3;
-      setCameraState(cameraStateIndex);
-    }
-    function cycleCameraStateBackward() {
-      cameraStateIndex = (cameraStateIndex + 3 - 1) % 3;
-      setCameraState(cameraStateIndex);
-    }
-
-    // Input binding: spacebar to cycle; shift+space to cycle backward
-    window.addEventListener("keydown", (e) => {
-      if (e.code === "Space") {
-        e.preventDefault();
-        if (e.shiftKey) cycleCameraStateBackward();
-        else cycleCameraState();
-      }
-    });
-
-    // Child B: Knot morph content
-    const startGeo = new THREE.TorusKnotGeometry(1, 0.4, 128, 32, 2, 3);
-    const targetGeo = new THREE.TorusKnotGeometry(1, 0.4, 128, 32, 3, 5);
-    const targetPositions = targetGeo.getAttribute("position").array;
-    startGeo.setAttribute(
-      "targetPosition",
-      new THREE.BufferAttribute(targetPositions, 3)
+  // debug: ?plaquecam stands the camera at the first item's lectern
+  if (urlParams.has("plaquecam") && items.length) {
+    const c = items[0].center ?? items[0].hitMesh.position;
+    const dir = new THREE.Vector3(-c.x, 0, -c.z).normalize();
+    controls.target.set(
+      c.x + dir.x * PLAQUE.standOff,
+      PLAQUE.y + 0.18,
+      c.z + dir.z * PLAQUE.standOff
     );
-    const knotMat = new THREE.MeshBasicNodeMaterial({
-      wireframe: true,
-      transparent: true,
-    });
-    knotMat.positionNode = knotMorphPosition();
-    knotMat.colorNode = color(0x00ff00);
-    const knotMesh = new THREE.Mesh(startGeo, knotMat);
-    childScene2.add(knotMesh);
-
-    // Fit knot inside childCamera2 frustum and center it
-    startGeo.computeBoundingSphere();
-    const knotRadius = startGeo.boundingSphere?.radius || 1.5;
-    const vFov = (childCamera2.fov * Math.PI) / 180;
-    const fitHeightDistance = knotRadius / Math.tan(vFov / 2);
-    const fitWidthDistance = (knotRadius * childAspect) / Math.tan(vFov / 2);
-    const distance = Math.max(fitHeightDistance, fitWidthDistance) * 1.2; // margin
-    childCamera2.position.set(0, 0, distance);
-    childCamera2.lookAt(0, 0, 0);
-
-    // Simple cinema-like stand for context
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(6, 6),
-      new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 1 })
+    parentCamera.position.set(
+      c.x + dir.x * (PLAQUE.standOff + 0.85),
+      1.05,
+      c.z + dir.z * (PLAQUE.standOff + 0.85)
     );
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.y = 0;
-    parentScene.add(floor);
+    controls.update();
+  }
 
-    const light = new THREE.DirectionalLight(0xffffff, 1.0);
-    light.position.set(1, 2, 1);
-    parentScene.add(light);
-    parentScene.add(new THREE.AmbientLight(0xffffff, 0.2));
+  // deep-link an exhibit: ?focus=2 (1-based, matching the digit keys)
+  const focusParam = new URLSearchParams(location.search).get("focus");
+  if (focusParam !== null) {
+    const i = Number(focusParam) - 1;
+    if (i >= 0 && i < items.length) {
+      setFocus(i);
+      // &snap completes the flight instantly (headless verification renders
+      // only the first frame, so an eased flight never lands on camera)
+      if (urlParams.has("snap")) rig.update(999);
+    }
+  }
 
-    // Animate child camera along a spiral around the head
-    let lastTime = performance.now() * 0.001;
-    let accum = 0;
-    const computeInterval = 1 / 30; // 30 Hz compute
-    let computeInFlight = false;
+  renderer.setAnimationLoop(() => {
+    const dt = Math.min(0.1, clock.getDelta());
+    const now = clock.elapsedTime;
 
-    renderer.setAnimationLoop(async () => {
-      const now = performance.now() * 0.001;
-      const dt = Math.min(0.1, now - lastTime);
-      lastTime = now;
+    conductor.update(dt); // fire this frame's hits before pieces move
+    uPump.value = conductor.pump(PUMP.sharp);
+    const lightDuck = 1 - PUMP.light * (1 - uPump.value);
+    for (const s of spots) s.intensity = LIGHT.intensity * lightDuck;
 
-      // Integrate phase with real dt
-      phaseUniform.value += waveSpeed.value * dt;
-
-      // Throttle compute to ~30Hz
-      accum += dt;
-      if (accum >= computeInterval && !computeInFlight) {
-        accum -= computeInterval;
-        computeInFlight = true;
-        await renderer.computeAsync(computeNode).finally(() => {
-          computeInFlight = false;
-        });
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === "object") {
+        // in-room: motion every frame, GPU compute self-paced
+        item.content.update?.(dt, now);
+        item.content.compute?.(renderer);
+      } else {
+        const hz =
+          focusedIndex === -1
+            ? RATES.ambient
+            : i === focusedIndex
+              ? Infinity
+              : RATES.idle;
+        item.runner.renderIfDue(renderer, now, hz);
       }
-
-      // Spiral motion for child camera
-      const radius = 1.25;
-      const angularSpeed = 0.4; // rad/s
-      const elevationSpeed = 0.15; // cycles/s
-      const angle = now * angularSpeed;
-      const y = Math.sin(now * elevationSpeed) * 0.2;
-      childCamera.position.set(
-        Math.cos(angle) * radius,
-        y,
-        Math.sin(angle) * radius
-      );
-      childCamera.lookAt(0, 0, 0);
-
-      // Child B animation (knot morph)
-      const mixFactor = Math.abs(Math.sin(now * 0.5));
-      knotMat.positionNode = knotMorphPosition({ mixFactor });
-      knotMesh.rotation.y += 0.01;
-
-      // Camera animation LERP (position and target)
-      if (camAnim) {
-        camAnim.t += dt / camAnim.duration;
-        const a = Math.min(1, camAnim.t);
-        const e = camAnim.ease ? camAnim.ease(a) : a;
-        parentCamera.position.lerpVectors(camAnim.fromPos, camAnim.toPos, e);
-        controls.target.lerpVectors(camAnim.fromTarget, camAnim.toTarget, e);
-        if (a >= 1) camAnim = null;
-      }
-
-      // Render parent scene with user controls
-      controls.update();
-      renderer.render(parentScene, parentCamera);
-    });
-
-    // Update layout for aspect/orientation changes
-    function updateLayout() {
-      childAspect = getCinematicAspect(window.innerWidth, window.innerHeight);
-
-      const dims = computeScreenDimensions(childAspect, longSide);
-      const newWidth = dims.width;
-      const newHeight = dims.height;
-
-      // Update child cameras
-      childCamera.aspect = childAspect;
-      childCamera.updateProjectionMatrix();
-      childCamera2.aspect = childAspect;
-      childCamera2.updateProjectionMatrix();
-
-      // Update portal screens by scaling relative to initial geometry size
-      screen.scale.set(newWidth / initialWidth, newHeight / initialHeight, 1);
-      screen2.scale.set(newWidth / initialWidth, newHeight / initialHeight, 1);
-
-      // Rebuild frames to keep thickness/depth consistent
-      parentScene.remove(frameGroup);
-      frameGroup = createFrame({
-        width: newWidth,
-        height: newHeight,
-        thickness: frameThickness,
-        depth: frameDepth,
-        material: frameMat,
-      });
-      frameGroup.position.copy(screen.position);
-      parentScene.add(frameGroup);
-
-      parentScene.remove(frameGroup2);
-      frameGroup2 = createFrame({
-        width: newWidth,
-        height: newHeight,
-        thickness: frameThickness,
-        depth: frameDepth,
-        material: frameMat,
-      });
-      frameGroup2.position.copy(screen2.position);
-      parentScene.add(frameGroup2);
-
-      // Re-fit knot camera distance for new aspect
-      const vFov = (childCamera2.fov * Math.PI) / 180;
-      const fitH = knotRadius / Math.tan(vFov / 2);
-      const fitW = (knotRadius * childAspect) / Math.tan(vFov / 2);
-      const dist = Math.max(fitH, fitW) * 1.2;
-      childCamera2.position.set(0, 0, dist);
-      childCamera2.lookAt(0, 0, 0);
     }
 
-    // Resize handling for renderer and parent camera, then update layout
-    window.addEventListener("resize", () => {
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      parentCamera.aspect = window.innerWidth / window.innerHeight;
-      parentCamera.updateProjectionMatrix();
-      updateLayout();
-    });
+    rig.update(dt);
+    controls.update();
+
+    if (urlParams.has("camdebug")) {
+      document.getElementById("help").textContent = `cam ${parentCamera.position
+        .toArray()
+        .map((v) => v.toFixed(2))
+        .join(",")} tgt ${controls.target
+        .toArray()
+        .map((v) => v.toFixed(2))
+        .join(",")} anim:${!!rig.anim} focused:${focusedIndex} t:${now.toFixed(1)}`;
+    }
+
+    // room pre-passes (e.g. the metaballs' refraction source) render with the
+    // final camera transform, after all motion for this frame is settled
+    for (const item of items) {
+      if (item.kind === "object")
+        item.content.prepass?.(renderer, parentScene, parentCamera);
+    }
+
+    renderer.render(parentScene, parentCamera);
   });
+});
