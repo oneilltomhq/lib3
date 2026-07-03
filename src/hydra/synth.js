@@ -14,14 +14,16 @@ import { createSourceApi } from "./compiler.js";
 import { HydraOutput } from "./output.js";
 
 export class HydraSynth {
-  constructor({ renderer, width = 1280, height = 720, outputs = 4 } = {}) {
+  constructor({ renderer, width = 1280, height = 720, outputs = 4, display = false } = {}) {
     if (!renderer) throw new Error("HydraSynth needs a renderer (create + init it yourself)");
     this.renderer = renderer;
     this.width = width;
     this.height = height;
 
+    // display: stable per-output composite targets (oN.displayNode) — REQUIRED
+    // when a 3D scene samples the outputs; see HydraOutput
     this.outputs = [];
-    for (let i = 0; i < outputs; i++) this.outputs.push(new HydraOutput(width, height));
+    for (let i = 0; i < outputs; i++) this.outputs.push(new HydraOutput(width, height, { display }));
     this.defaultOut = this.outputs[0]; // what bare .out() targets
     this.display = this.outputs[0];    // what present() blits
 
@@ -51,10 +53,15 @@ export class HydraSynth {
   }
 
   // run all patch passes offscreen (uniform updates, ping-pong, swap) without
-  // presenting — for callers that composite the outputs into their own scene
+  // presenting — for callers that composite the outputs into their own scene.
+  // The caller's render target is restored afterwards: without this, the next
+  // scene render would draw INTO the last output while sampling it (invalid
+  // pass on WebGPU — the screen just goes black).
   update(tSeconds) {
+    const prev = this.renderer.getRenderTarget();
     for (const out of this.outputs) out.updateUniforms(tSeconds);
     for (const out of this.outputs) out.render(this.renderer);
+    this.renderer.setRenderTarget(prev);
   }
 
   // blit the display output to the canvas
