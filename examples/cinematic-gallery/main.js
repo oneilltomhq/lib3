@@ -9,9 +9,10 @@
 //   1–5          jump to exhibit     esc           overview
 //   click piece  focus it            drag          free orbit
 
-import { color, normalView, uv } from "three/tsl";
+import { color, normalView, uniform, uv } from "three/tsl";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import * as THREE from "three/webgpu";
+import { Conductor } from "../../src/conductor.js";
 import { BatchedText, Text } from "../../src/sdf-text/index.js";
 import { EXHIBITS } from "./exhibits.js";
 import {
@@ -35,6 +36,17 @@ const TV_RT = { width: 1600, height: 900 };
 // Render rates (Hz) granted to SCREENS by the budget manager; in-room objects
 // render with the parent scene every frame. Focused = every frame.
 const RATES = { ambient: 20, idle: 8 };
+
+// One clock for the whole room. Every piece registers its own euclidean
+// voice against this — different ratios, same root, so the room grooves
+// together instead of five pendulums swinging independently.
+const TEMPO = { bpm: 96, swing: 0.12 };
+const conductor = new Conductor(TEMPO);
+
+// The techno floor: a four-on-the-floor kick envelope every piece and the
+// room lighting duck to. depth 0 = off, 1 = full blackout between beats.
+const PUMP = { light: 0.35, cone: 0.55, sharp: 5 };
+const uPump = uniform(1); // conductor.pump(), written once per frame
 
 // Museum lighting: the room is dark and the pools of light are the
 // composition. One warm halogen spot hangs over each piece.
@@ -121,10 +133,13 @@ const coneMat = new THREE.MeshBasicNodeMaterial({
   const v = uv().y;
   const shaft = v.smoothstep(0.0, 0.45).mul(v.mul(0.8).add(0.2));
   const core = normalView.z.abs().pow(1.6);
+  const duck = uPump.mul(PUMP.cone).add(1 - PUMP.cone);
   coneMat.colorNode = color(LIGHT.color).mul(
-    shaft.mul(core).mul(LIGHT.coneOpacity)
+    shaft.mul(core).mul(LIGHT.coneOpacity).mul(duck)
   );
 }
+
+const spots = []; // pumped per frame
 
 function addExhibitLight(x, z) {
   const spot = new THREE.SpotLight(
@@ -138,6 +153,7 @@ function addExhibitLight(x, z) {
   spot.position.set(x, LIGHT.height, z);
   spot.target.position.set(x, 0, z);
   parentScene.add(spot, spot.target);
+  spots.push(spot);
 
   if (LIGHT.coneOpacity > 0) {
     const baseRadius = Math.tan(LIGHT.angle) * LIGHT.height * LIGHT.coneRadius;
@@ -308,7 +324,7 @@ async function buildExhibits() {
     const { x, z } = arcPosition(i, n);
 
     if (entry.mode === "object") {
-      const content = await entry.make({});
+      const content = await entry.make({ conductor });
       const center = new THREE.Vector3(x, EXHIBIT_Y, z);
       content.group.position.copy(center);
       parentScene.add(content.group);
@@ -344,7 +360,7 @@ async function buildExhibits() {
     const aspect = isPortal
       ? window.innerWidth / window.innerHeight
       : SCREEN_ASPECT;
-    const content = await entry.make({ aspect });
+    const content = await entry.make({ aspect, conductor });
 
     const size = isPortal ? portalSize() : TV_RT;
     const runner = new ExhibitRunner({
@@ -506,6 +522,11 @@ renderer.init().then(async () => {
   renderer.setAnimationLoop(() => {
     const dt = Math.min(0.1, clock.getDelta());
     const now = clock.elapsedTime;
+
+    conductor.update(dt); // fire this frame's hits before pieces move
+    uPump.value = conductor.pump(PUMP.sharp);
+    const lightDuck = 1 - PUMP.light * (1 - uPump.value);
+    for (const s of spots) s.intensity = LIGHT.intensity * lightDuck;
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];

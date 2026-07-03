@@ -44,7 +44,7 @@
     "build:examples": "vite build --mode examples",
     "dev": "vite --mode examples",
     "prepublishOnly": "pnpm build",
-    "test": "node --test test/sdf-pipeline.test.mjs test/journey.test.mjs"
+    "test": "node --test test/sdf-pipeline.test.mjs test/journey.test.mjs test/conductor.test.mjs"
   },
   "keywords": [],
   "author": "",

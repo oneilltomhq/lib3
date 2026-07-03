@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Knot Morph — Rhythm Lab</title>
+    <script type="module" src="./main.js"></script>
+    <style>
+      :root{ --panel:#0c0f17d9; --line:#1c2230; --txt:#aeb6c6; --dim:#5a6478; --accent:#39e6c3; }
+      *{ box-sizing:border-box; }
+      html,body{ margin:0; height:100%; background:#000; color:var(--txt);
+        font:12px/1.4 ui-monospace,Menlo,Consolas,monospace; }
+      canvas{ display:block; width:100%; height:100%; }
+      #panel{ position:fixed; top:14px; right:14px; width:250px; max-height:calc(100vh - 28px);
+        overflow-y:auto; background:var(--panel); border:1px solid var(--line); border-radius:8px;
+        padding:12px 14px; backdrop-filter:blur(6px); }
+      h1{ font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--accent);
+        margin:0 0 2px; display:flex; align-items:center; gap:8px; }
+      #beat{ width:10px; height:10px; border-radius:50%; background:var(--accent); opacity:.15; }
+      .sub{ color:var(--dim); margin:0 0 10px; font-size:10px; }
+      h2{ font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--dim);
+        margin:12px 0 4px; border-bottom:1px solid var(--line); padding-bottom:3px; }
+      .row{ display:flex; align-items:center; gap:8px; margin:5px 0; }
+      .row label{ flex:0 0 62px; color:var(--txt); }
+      .row input[type=range]{ flex:1; min-width:0; height:3px; -webkit-appearance:none; appearance:none;
+        background:var(--line); border-radius:2px; outline:none; }
+      .row input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:11px; height:11px;
+        border-radius:50%; background:var(--accent); cursor:pointer; }
+      .row input[type=range]::-moz-range-thumb{ width:11px; height:11px; border:0; border-radius:50%;
+        background:var(--accent); cursor:pointer; }
+      .row .val{ flex:0 0 38px; text-align:right; color:var(--accent); }
+      .presets{ display:flex; flex-wrap:wrap; gap:5px; margin-bottom:4px; }
+      .presets button{ background:#121826; color:var(--txt); border:1px solid var(--line);
+        border-radius:4px; padding:4px 7px; font:inherit; font-size:10px; cursor:pointer; }
+      .presets button:hover{ border-color:var(--accent); color:var(--accent); }
+      .presets button.op{ color:var(--dim); }
+      .foot{ color:var(--dim); font-size:10px; margin-top:10px; }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <div id="panel">
+      <h1><span id="beat"></span>knot morph — rhythm lab</h1>
+      <p class="sub">primitives edition: 120bpm four-on-the-floor, everything
+        else zeroed. raise ONE slider, feel it against the beat, judge, zero,
+        next. compose from survivors. ＋ capture · shift+click = overwrite ·
+        ✕ = delete · ⌀ = zero all.</p>
+      <div class="presets" id="presets"></div>
+      <div id="params"></div>
+      <div class="foot" id="readout">—</div>
+    </div>
+  </body>
+</html>

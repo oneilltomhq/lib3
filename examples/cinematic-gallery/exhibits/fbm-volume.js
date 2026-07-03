@@ -37,6 +37,7 @@ import {
   vec4,
 } from "three/tsl";
 import * as THREE from "three/webgpu";
+import { Spring } from "../../../src/conductor.js";
 import { simplexNoise3 } from "../../../src/index.js";
 
 const SIZE = 128;
@@ -61,7 +62,13 @@ const DRIFT = [
   { dir: [-0.9, 0.1, -0.8], speed: 4.0 },
 ];
 
-export async function createFbmVolumeExhibit() {
+// rhythm: smoke doesn't hit — it breathes. Churn rate rides the phrase arc
+// (calm at the head, boiling by the end, release), and a soft intensity
+// thump lands once a bar, springing back down slowly.
+const VOICE = { steps: 4, hits: 1 };
+const DANCE = { churn: [0.5, 2.0], thump: 0.9, pump: 0.2 }; // smoke ducks gently
+
+export async function createFbmVolumeExhibit({ conductor } = {}) {
   const uRidge = uniform(EMBER.ridge);
   const uGain = uniform(EMBER.gain);
   const uDomain = uniform(EMBER.domain);
@@ -188,11 +195,28 @@ export async function createFbmVolumeExhibit() {
 
   let bakeAccum = Infinity; // force a bake on the first frame
 
+  const thumpSpring = new Spring({
+    value: EMBER.intensity,
+    freq: 1.1,
+    zeta: 0.8,
+  });
+  conductor?.voice({
+    ...VOICE,
+    onHit: ({ accent }) => thumpSpring.kick(DANCE.thump * accent),
+  });
+
   return {
     group,
     radius: (BOX_SCALE * Math.sqrt(3)) / 2,
     update(dt) {
-      uEvolve.value += dt * EMBER.evolve;
+      if (conductor) {
+        const [lo, hi] = DANCE.churn;
+        uEvolve.value += dt * EMBER.evolve * (lo + (hi - lo) * conductor.phrase01);
+        const duck = 1 - DANCE.pump * (1 - conductor.pump());
+        uIntensity.value = thumpSpring.update(dt) * duck;
+      } else {
+        uEvolve.value += dt * EMBER.evolve;
+      }
       bakeAccum += dt;
     },
     compute(renderer) {

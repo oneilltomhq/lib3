@@ -54,7 +54,7 @@ const GLASS = {
   rimStrength: 0.45,
 };
 
-export async function createMetaballsExhibit() {
+export async function createMetaballsExhibit({ conductor } = {}) {
   const sources = Array.from({ length: COUNT }, (_, i) => {
     const baseRadius = 0.04 + Math.pow((i % 6) / 5, 1.5) * 0.05;
     return {
@@ -163,6 +163,8 @@ export async function createMetaballsExhibit() {
     radius: (BOX_SCALE * Math.sqrt(3)) / 2,
     update(dt) {
       motionTime += dt * DANCE.speed;
+      // all balls swell together on the room kick (radius margin allows ~16%)
+      const pump = conductor ? 1 + 0.14 * conductor.pump() : 1;
 
       for (let i = 0; i < sources.length; i++) {
         const source = sources[i];
@@ -188,7 +190,8 @@ export async function createMetaballsExhibit() {
         );
         source.radius =
           source.baseRadius *
-          (0.86 + Math.sin(boil * 2.4 + i) * DANCE.pulse * 0.14);
+          (0.86 + Math.sin(boil * 2.4 + i) * DANCE.pulse * 0.14) *
+          pump;
 
         uPositions.array[i].copy(source.position);
         uRadii.array[i] = source.radius;
