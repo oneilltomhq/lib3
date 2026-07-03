@@ -24,6 +24,7 @@ import {
 import * as THREE from "three/webgpu";
 import { Spring } from "../../../src/conductor.js";
 import { knotMorphPosition } from "../../../src/knotMorph.js";
+import { bindKey, bindUniform } from "../../../src/rack.js";
 
 // weave-local: the strand band sits at xz radius ~0.5–1.5, tube ±0.4, so an
 // offset of ~1.0·scale puts the band's midline through the exhibit centre.
@@ -48,7 +49,7 @@ const DANCE = {
   pump: 0.4, // wire brightness ducking to the room kick
 };
 
-export async function createKnotExhibit({ conductor } = {}) {
+export async function createKnotExhibit({ conductor, rack } = {}) {
   const startGeo = new THREE.TorusKnotGeometry(1, 0.4, 128, 32, 2, 3);
   const targetGeo = new THREE.TorusKnotGeometry(1, 0.4, 128, 32, 3, 5);
   startGeo.setAttribute(
@@ -109,13 +110,38 @@ export async function createKnotExhibit({ conductor } = {}) {
   const spinBoost = new Spring({ value: 0, target: 0, freq: 0.7, zeta: 0.9 });
   let rollPhase = 0;
 
-  conductor?.voice({
+  // live tuning state — what the rack addresses (module consts stay defaults)
+  const dance = { ...DANCE };
+  const motion = { spin: WEAVE.spin, sway: WEAVE.wobble };
+
+  const voice = conductor?.voice({
     ...VOICE,
     onHit({ accent }) {
-      rollRate.kick(DANCE.surge * accent);
-      spinBoost.kick(DANCE.spinKick * accent);
+      rollRate.kick(dance.surge * accent);
+      spinBoost.kick(dance.spinKick * accent);
     },
   });
+
+  // the exhibit's jack panel: beat pushes momentum, and so can an agent.
+  // /knot/roll sets the SPRING TARGET — the spring is the glide, so even a
+  // 0ms rack set lands as physics, never a teleport.
+  rack?.add("/knot/roll", bindKey(rollRate, "target"),
+    { label: "base roll", min: 0.05, max: 2, unit: "rad/s" });
+  rack?.add("/knot/surge", bindKey(dance, "surge"), { min: 0, max: 4 });
+  rack?.add("/knot/spin", bindKey(motion, "spin"), { min: 0, max: 2, unit: "rad/s" });
+  rack?.add("/knot/sway", bindKey(motion, "sway"), { min: 0, max: 0.6 });
+  rack?.add("/knot/pump", bindKey(dance, "pump"), { min: 0, max: 1, label: "kick duck" });
+  rack?.add("/knot/duck", bindUniform(uDuck), { min: 0, max: 1, type: "meter" });
+  rack?.add("/knot/hits", {
+    get: () => voice?.hits ?? VOICE.hits,
+    set: (v) => voice?.set({ hits: Math.round(v) }),
+  }, { min: 0, max: 8, step: 1, label: "euclidean hits" });
+  rack?.add("/knot/hit", {
+    get: () => 0,
+    set: (v) => {
+      if (v >= 0.5) { rollRate.kick(dance.surge); spinBoost.kick(dance.spinKick); }
+    },
+  }, { min: 0, max: 1, type: "trigger" });
 
   return {
     group,
@@ -123,17 +149,17 @@ export async function createKnotExhibit({ conductor } = {}) {
     // it, so WEAVE.scale can grow without touching the room
     radius: WINDOW_FADE[1],
     update(dt, elapsed) {
-      let sway = WEAVE.wobble;
+      let sway = motion.sway;
       if (conductor) {
         // phase never stops; beats only change how hard it rolls
         rollPhase += Math.max(0.05, rollRate.update(dt)) * dt;
         uMix.value = 0.5 - 0.5 * Math.cos(rollPhase);
-        mesh.rotation.y += (WEAVE.spin + spinBoost.update(dt)) * dt;
-        sway *= 1 + DANCE.swayGrow * conductor.phrase01;
-        uDuck.value = 1 - DANCE.pump * (1 - conductor.pump());
+        mesh.rotation.y += (motion.spin + spinBoost.update(dt)) * dt;
+        sway *= 1 + dance.swayGrow * conductor.phrase01;
+        uDuck.value = 1 - dance.pump * (1 - conductor.pump());
       } else {
         uMix.value = Math.abs(Math.sin(elapsed * 0.5));
-        mesh.rotation.y += WEAVE.spin * dt;
+        mesh.rotation.y += motion.spin * dt;
       }
       mesh.rotation.x = Math.sin(elapsed * 0.21) * sway;
       mesh.rotation.z = Math.sin(elapsed * 0.13 + 1.7) * sway * 0.6;

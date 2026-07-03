@@ -13,6 +13,7 @@ import { color, normalView, uniform, uv } from "three/tsl";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import * as THREE from "three/webgpu";
 import { Conductor } from "../../src/conductor.js";
+import { Rack, bindKey, localStorageAdapter } from "../../src/rack.js";
 import { BatchedText, Text } from "../../src/sdf-text/index.js";
 import { EXHIBITS } from "./exhibits.js";
 import {
@@ -42,6 +43,15 @@ const RATES = { ambient: 20, idle: 8 };
 // together instead of five pendulums swinging independently.
 const TEMPO = { bpm: 96, swing: 0.12 };
 const conductor = new Conductor(TEMPO);
+
+// The room's control plane. Every exhibit registers its params here; the
+// whole gallery becomes one addressable patch (window.rack — drive it from
+// the console or an agent: rack.params(), rack.set("/knot/roll", 1.2, 2000),
+// rack.snap("tuned"), rack.replay(rack.session(), 2)).
+const rack = new Rack({ storage: localStorageAdapter("cinematicGalleryRack") });
+rack.add("/room/bpm", bindKey(conductor, "bpm"), { min: 60, max: 160, unit: "bpm" });
+rack.add("/room/swing", bindKey(conductor, "swing"), { min: 0, max: 0.6 });
+window.rack = rack;
 
 // The techno floor: a four-on-the-floor kick envelope every piece and the
 // room lighting duck to. depth 0 = off, 1 = full blackout between beats.
@@ -324,7 +334,7 @@ async function buildExhibits() {
     const { x, z } = arcPosition(i, n);
 
     if (entry.mode === "object") {
-      const content = await entry.make({ conductor });
+      const content = await entry.make({ conductor, rack });
       const center = new THREE.Vector3(x, EXHIBIT_Y, z);
       content.group.position.copy(center);
       parentScene.add(content.group);
@@ -360,7 +370,7 @@ async function buildExhibits() {
     const aspect = isPortal
       ? window.innerWidth / window.innerHeight
       : SCREEN_ASPECT;
-    const content = await entry.make({ aspect, conductor });
+    const content = await entry.make({ aspect, conductor, rack });
 
     const size = isPortal ? portalSize() : TV_RT;
     const runner = new ExhibitRunner({
@@ -524,6 +534,7 @@ renderer.init().then(async () => {
     const now = clock.elapsedTime;
 
     conductor.update(dt); // fire this frame's hits before pieces move
+    rack.update(dt); // the render loop is the ramp clock
     uPump.value = conductor.pump(PUMP.sharp);
     const lightDuck = 1 - PUMP.light * (1 - uPump.value);
     for (const s of spots) s.intensity = LIGHT.intensity * lightDuck;
