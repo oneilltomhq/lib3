@@ -1,6 +1,6 @@
 // Knot Morph — Rhythm Lab, primitives edition. The clock is pinned (120bpm,
-// four on the floor, scale 0.40, centred weave); the panel is nine ISOLATED
-// motion primitives, all zeroed. Protocol: raise one, feel it against the
+// four on the floor, scale 0.40, centred weave); the panel is ISOLATED
+// motion primitives. Protocol: raise one, feel it against the
 // beat, judge it, zero it, move on — compose only from the survivors.
 //
 // Full instrument (euclidean voices, springs, every raw param) lives in git
@@ -19,28 +19,33 @@ import {
   vec4,
 } from "three/tsl";
 import * as THREE from "three/webgpu";
-import { Conductor } from "../../src/conductor.js";
+import { Conductor, Spring } from "../../src/conductor.js";
 import { knotMorphPosition } from "../../src/knotMorph.js";
-import { Rack, bindKey, localStorageAdapter } from "../../src/rack.js";
+import { Rack, bindKey, connectRackBridge, localStorageAdapter } from "../../src/rack.js";
 
 const WIRE_COLORS = { start: 0x1fb8ff, target: 0x49ffa0 }; // (2,3) → (3,5)
 
 // ---- the primitives ---------------------------------------------------------
-// Nine isolated motion channels, every one normalized 0–1 and defaulting to
-// ZERO. Protocol: raise ONE, feel it against the beat, judge it, zero it,
-// move on. Compose only from the survivors. Each slider's real-world range
-// lives in the loop mapping below.
+// Isolated motion channels, every one normalized 0–1. Protocol: raise ONE,
+// feel it against the beat, judge it, zero it, move on. Compose only from the
+// survivors. Each slider's real-world range lives in the loop mapping below.
+// bend/bloom/sharp/wind are the GEOMETRY dancers — the morph itself gets the
+// pulse language the transforms already had.
 // defaults = Tom's end-of-night find (2026-07-03); ⌀ zero all to taste singles
 const P = {
   duck: { value: 0.86 }, // PULSE × brightness
   pop: { value: 0.6 }, // PULSE × scale
   squash: { value: 0.85 }, // PULSE × shape (anisotropic)
   punch: { value: 0.74 }, // PULSE × camera (fov punch-in)
+  bend: { value: 0 }, // PULSE × morph phase — kick SHOVES the morph, spring rings it back (squelch)
+  bloom: { value: 0 }, // PULSE × morph depth — geometry blooms toward (3,5) on the kick
+  sharp: { value: 0 }, // PULSE × wavefront shape — crests peak on the kick
   orbit: { value: 1.0 }, // CYCLE × position (one loop per 2 beats)
   roll: { value: 0 }, // CYCLE × tilt (axis nutation, same loop)
   spin: { value: 1.0 }, // CYCLE × yaw (free-running turntable)
   morph: { value: 1.0 }, // CYCLE × geometry, uniform (whole knot breathes as one)
   travel: { value: 0.47 }, // CYCLE × geometry, traveling (a morph FRONT winds along the tube)
+  wind: { value: 0 }, // CYCLE × travel speed — the front rides the groove loop, not the grid
 };
 
 // ---- everything pinned (Tom's find 2 look, macro-era simplifications) ------
@@ -103,15 +108,20 @@ const uDuck = uniform(1);
 // uv.x runs along the tube (a closed loop), so the traveling term must wrap
 // an integer number of times or the seam tears.
 const uPhase = uniform(0); // grid-locked morph phase (radians)
+const uBend = uniform(0); // kick-spring phase shove (radians) — the geometry's squelch
+const uTravelPhase = uniform(0); // traveling-front phase, integrated (wind blends its rate)
+const uSharp = uniform(1); // wave exponent >1 peaks the crests (pumped by the kick)
 const uMorphD = uniform(0); // depth of the uniform (everywhere-at-once) wave
 const uTravelD = uniform(0); // depth of the traveling front
 const WAVES = 2; // wavefront wraps around the tube
-const wUniform = uPhase.cos().mul(-0.5).add(0.5);
-const wTravel = uPhase
+const wUniform = uPhase.add(uBend).cos().mul(-0.5).add(0.5).pow(uSharp);
+const wTravel = uTravelPhase
+  .add(uBend)
   .sub(uv().x.mul(Math.PI * 2 * WAVES))
   .cos()
   .mul(-0.5)
-  .add(0.5);
+  .add(0.5)
+  .pow(uSharp);
 const mixNode = wUniform
   .sub(0.5)
   .mul(uMorphD)
@@ -157,6 +167,16 @@ scene.add(mesh);
 const conductor = new Conductor({ bpm: FIXED.bpm });
 let bodyPump = 0;
 
+// the geometry's own drum: every floor kick shoves the morph phase forward;
+// an underdamped spring rings it back — squelch lives HERE, not in the
+// transform. bend scales the shove.
+const bendSpring = new Spring({ value: 0, target: 0, freq: 2.2, zeta: 0.32 });
+conductor.voice({
+  steps: 4, hits: 4,
+  onHit({ accent }) { bendSpring.kick(P.bend.value * 7 * accent); },
+});
+let travelPhase = 0;
+
 // ---- rack: the lab as an instrument ---------------------------------------------
 // Every primitive is addressable (window.rack). Slider drags dispatch through
 // the same recorded channel as agent calls, so a hand-tuned exploration is a
@@ -164,6 +184,7 @@ let bodyPump = 0;
 // recorded performance with ?session=<name> (examples ship in ./sessions/).
 const rack = new Rack({ storage: localStorageAdapter("knotRhythmLabRack") });
 rack.add("/room/bpm", bindKey(conductor, "bpm"), { min: 60, max: 160, unit: "bpm" });
+if (new URLSearchParams(location.search).has("bridge")) connectRackBridge(rack);
 
 // ---- panel: one flat row per primitive, all zeroed --------------------------------
 const paramsEl = document.getElementById("params");
@@ -332,10 +353,21 @@ renderer.init().then(() => {
     mesh.position.z = Math.sin(loop) * orbitR * 0.7;
     mesh.position.y = Math.sin(loop * 2) * orbitR * 0.35;
 
-    // morph phase locked to the grid; depths feed the spatial mix node
+    // morph phase locked to the grid; depths feed the spatial mix node.
+    // bend = spring-rung phase shove; bloom = depth pumping with the kick;
+    // sharp = crest peaking on the kick; wind = front speed gliding from the
+    // grid rate to the groove-loop rate — the DANCE, inside the geometry
     uPhase.value = (conductor.beat * 2 * Math.PI) / MORPH_BEATS;
-    uMorphD.value = P.morph.value;
-    uTravelD.value = P.travel.value;
+    uBend.value = bendSpring.update(dt);
+    const beatHz = conductor.bpm / 60;
+    const rGrid = (2 * Math.PI * beatHz) / MORPH_BEATS;
+    const rLoop = (2 * Math.PI * beatHz) / FIXED.loopBeats;
+    travelPhase += (rGrid + (rLoop - rGrid) * P.wind.value) * dt;
+    uTravelPhase.value = travelPhase;
+    uSharp.value = 1 + P.sharp.value * 3 * bodyPump;
+    const bloomMod = 1 - P.bloom.value * (1 - bodyPump);
+    uMorphD.value = P.morph.value * bloomMod;
+    uTravelD.value = P.travel.value * bloomMod;
     mesh.rotation.y += P.spin.value * 0.8 * dt;
 
     // axis nutation on the groove loop over the slow aimless sway
