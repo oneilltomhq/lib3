@@ -1,0 +1,37 @@
+[
+  { "t": 0, "source": "agent", "cmd": { "type": "set", "path": "/p/duck", "value": 0, "ramp": 0 } },
+  { "t": 0, "source": "agent", "cmd": { "type": "set", "path": "/p/pop", "value": 0, "ramp": 0 } },
+  { "t": 0, "source": "agent", "cmd": { "type": "set", "path": "/p/squash", "value": 0, "ramp": 0 } },
+  { "t": 0, "source": "agent", "cmd": { "type": "set", "path": "/p/punch", "value": 0, "ramp": 0 } },
+  { "t": 0, "source": "agent", "cmd": { "type": "set", "path": "/p/orbit", "value": 0, "ramp": 0 } },
+  { "t": 0, "source": "agent", "cmd": { "type": "set", "path": "/p/roll", "value": 0, "ramp": 0 } },
+  { "t": 0, "source": "agent", "cmd": { "type": "set", "path": "/p/spin", "value": 0, "ramp": 0 } },
+  { "t": 0, "source": "agent", "cmd": { "type": "set", "path": "/p/morph", "value": 0, "ramp": 0 } },
+  { "t": 0, "source": "agent", "cmd": { "type": "set", "path": "/p/travel", "value": 0, "ramp": 0 } },
+
+  { "t": 200, "source": "agent", "cmd": { "type": "set", "path": "/p/duck", "value": 0.85, "ramp": 1500 } },
+  { "t": 2000, "source": "agent", "cmd": { "type": "set", "path": "/p/pop", "value": 0.5, "ramp": 6000 } },
+
+  { "t": 8000, "source": "agent", "cmd": { "type": "set", "path": "/p/orbit", "value": 1.0, "ramp": 4000 } },
+  { "t": 10000, "source": "agent", "cmd": { "type": "set", "path": "/p/spin", "value": 0.6, "ramp": 4000 } },
+
+  { "t": 16000, "source": "agent", "cmd": { "type": "set", "path": "/p/morph", "value": 1.0, "ramp": 8000 } },
+  { "t": 20000, "source": "agent", "cmd": { "type": "set", "path": "/p/spin", "value": 1.0, "ramp": 4000 } },
+
+  { "t": 24000, "source": "agent", "cmd": { "type": "set", "path": "/p/travel", "value": 0.47, "ramp": 4000 } },
+  { "t": 24000, "source": "agent", "cmd": { "type": "set", "path": "/p/squash", "value": 0.85, "ramp": 2000 } },
+  { "t": 26000, "source": "agent", "cmd": { "type": "set", "path": "/p/punch", "value": 0.74, "ramp": 2000 } },
+  { "t": 26000, "source": "agent", "cmd": { "type": "set", "path": "/p/pop", "value": 0.6, "ramp": 2000 } },
+
+  { "t": 32000, "source": "agent", "cmd": { "type": "set", "path": "/p/duck", "value": 0, "ramp": 1800 } },
+  { "t": 32000, "source": "agent", "cmd": { "type": "set", "path": "/p/pop", "value": 0, "ramp": 1800 } },
+  { "t": 32000, "source": "agent", "cmd": { "type": "set", "path": "/p/squash", "value": 0, "ramp": 1800 } },
+  { "t": 32000, "source": "agent", "cmd": { "type": "set", "path": "/p/punch", "value": 0, "ramp": 1800 } },
+  { "t": 34000, "source": "agent", "cmd": { "type": "set", "path": "/p/roll", "value": 0.35, "ramp": 3000 } },
+
+  { "t": 39800, "source": "agent", "cmd": { "type": "set", "path": "/p/roll", "value": 0, "ramp": 1000 } },
+  { "t": 40000, "source": "agent", "cmd": { "type": "set", "path": "/p/duck", "value": 0.86, "ramp": 0 } },
+  { "t": 40000, "source": "agent", "cmd": { "type": "set", "path": "/p/pop", "value": 0.6, "ramp": 0 } },
+  { "t": 40050, "source": "agent", "cmd": { "type": "set", "path": "/p/squash", "value": 0.85, "ramp": 0 } },
+  { "t": 40100, "source": "agent", "cmd": { "type": "set", "path": "/p/punch", "value": 0.74, "ramp": 0 } }
+]

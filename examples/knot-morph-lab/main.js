@@ -21,6 +21,7 @@ import {
 import * as THREE from "three/webgpu";
 import { Conductor } from "../../src/conductor.js";
 import { knotMorphPosition } from "../../src/knotMorph.js";
+import { Rack, bindKey, localStorageAdapter } from "../../src/rack.js";
 
 const WIRE_COLORS = { start: 0x1fb8ff, target: 0x49ffa0 }; // (2,3) → (3,5)
 
@@ -156,6 +157,14 @@ scene.add(mesh);
 const conductor = new Conductor({ bpm: FIXED.bpm });
 let bodyPump = 0;
 
+// ---- rack: the lab as an instrument ---------------------------------------------
+// Every primitive is addressable (window.rack). Slider drags dispatch through
+// the same recorded channel as agent calls, so a hand-tuned exploration is a
+// SESSION — replayable, liftable at any moment into a snapshot. Load a
+// recorded performance with ?session=<name> (examples ship in ./sessions/).
+const rack = new Rack({ storage: localStorageAdapter("knotRhythmLabRack") });
+rack.add("/room/bpm", bindKey(conductor, "bpm"), { min: 60, max: 160, unit: "bpm" });
+
 // ---- panel: one flat row per primitive, all zeroed --------------------------------
 const paramsEl = document.getElementById("params");
 const inputs = {};
@@ -173,13 +182,23 @@ for (const label in P) {
   val.className = "val";
   val.textContent = (+P[label].value).toFixed(2);
   inp.addEventListener("input", () => {
-    P[label].value = +inp.value;
-    val.textContent = (+inp.value).toFixed(2);
+    rack.set(`/p/${label}`, +inp.value, 0, "human");
   });
   row.append(inp, val);
   paramsEl.appendChild(row);
   inputs[label] = { inp, val };
+
+  // rack writes land in P and echo back into the slider UI
+  rack.add(`/p/${label}`, {
+    get: () => P[label].value,
+    set: (v) => {
+      P[label].value = v;
+      inp.value = v;
+      val.textContent = (+v).toFixed(2);
+    },
+  }, { min: 0, max: 1 });
 }
+window.rack = rack;
 
 // ---- presets (macro space) -------------------------------------------------------
 const STORE_KEY = "knot-rhythm-lab-macro-presets";
@@ -277,11 +296,22 @@ window.addEventListener("resize", () => {
 });
 
 renderer.init().then(() => {
+  // replay a recorded performance: ?session=build-up (&speed=2 to skim)
+  const q = new URLSearchParams(location.search);
+  const sessionName = q.get("session");
+  if (sessionName) {
+    fetch(`./sessions/${sessionName}.json`)
+      .then((r) => r.json())
+      .then((s) => rack.replay(s, Number(q.get("speed")) || 1))
+      .catch((e) => console.warn(`session "${sessionName}":`, e.message));
+  }
+
   renderer.setAnimationLoop(() => {
     const dt = Math.min(0.1, clock.getDelta());
     const elapsed = clock.elapsedTime;
 
     conductor.update(dt);
+    rack.update(dt); // the render loop is the ramp clock
     const pump = conductor.pump(FIXED.sharp);
     bodyPump += (pump - bodyPump) * Math.min(1, dt / FIXED.attack);
 
