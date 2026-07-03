@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       three:
-        specifier: github:mrdoob/three.js
-        version: https://codeload.github.com/mrdoob/three.js/tar.gz/71c6a2b701c94ad62f1494b6dad2f2292999b847
+        specifier: ^0.184.0
+        version: 0.184.0
     devDependencies:
       '@types/three':
         specifier: ^0.180.0
@@ -733,9 +733,8 @@ packages:
     resolution: {integrity: sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w==}
     engines: {node: '>= 0.4'}
 
-  three@https://codeload.github.com/mrdoob/three.js/tar.gz/71c6a2b701c94ad62f1494b6dad2f2292999b847:
-    resolution: {tarball: https://codeload.github.com/mrdoob/three.js/tar.gz/71c6a2b701c94ad62f1494b6dad2f2292999b847}
-    version: 0.180.0
+  three@0.184.0:
+    resolution: {integrity: sha512-wtTRjG92pM5eUg/KuUnHsqSAlPM296brTOcLgMRqEeylYTh/CdtvKUvCyyCQTzFuStieWxvZb8mVTMvdPyUpxg==}
 
   tinyglobby@0.2.15:
     resolution: {integrity: sha512-j2Zq4NyQYG5XMST4cbs02Ak8iJUdxRM0XI5QyxXuZOzKOINmWurp3smXu3y5wDcJrptwpSjgXHzIQxR0omXljQ==}
@@ -1438,7 +1437,7 @@ snapshots:
 
   supports-preserve-symlinks-flag@1.0.0: {}
 
-  three@https://codeload.github.com/mrdoob/three.js/tar.gz/71c6a2b701c94ad62f1494b6dad2f2292999b847: {}
+  three@0.184.0: {}
 
   tinyglobby@0.2.15:
     dependencies:

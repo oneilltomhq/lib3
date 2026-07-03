@@ -71,7 +71,7 @@
     "vite-plugin-dts": "^4.5.4"
   },
   "dependencies": {
-    "three": "github:mrdoob/three.js"
+    "three": "^0.184.0"
   },
   "peerDependencies": {
     "three": ">=0.180.0"
