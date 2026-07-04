@@ -41,6 +41,9 @@ export class BatchedText extends THREE.InstancedMesh {
     super(plane, material, maxGlyphCount);
 
     this.outlineWidth = options.outlineWidth ?? 0.03;
+    /** Contrasting halo color; null keeps the legacy same-color outline. */
+    this._outlineColor =
+      options.outlineColor != null ? new THREE.Color(options.outlineColor) : null;
     this.atlas = new FontAtlas(
       options.fontFamily,
       options.fontSize,
@@ -59,6 +62,7 @@ export class BatchedText extends THREE.InstancedMesh {
     this.glyphUVArray = new Float32Array(maxGlyphCount * 4);
     this.glyphBoundsArray = new Float32Array(maxGlyphCount * 4);
     this.colorArray = new Float32Array(maxGlyphCount * 3);
+    this.opacityArray = new Float32Array(maxGlyphCount).fill(1);
 
     this.glyphUVAttr = new THREE.InstancedBufferAttribute(this.glyphUVArray, 4);
     this.glyphUVAttr.setUsage(THREE.DynamicDrawUsage);
@@ -75,6 +79,10 @@ export class BatchedText extends THREE.InstancedMesh {
     this.colorAttr.setUsage(THREE.DynamicDrawUsage);
     this.geometry.setAttribute("aColor", this.colorAttr);
 
+    this.opacityAttr = new THREE.InstancedBufferAttribute(this.opacityArray, 1);
+    this.opacityAttr.setUsage(THREE.DynamicDrawUsage);
+    this.geometry.setAttribute("aOpacity", this.opacityAttr);
+
     this.buildMaterial(material);
     this.count = 0;
   }
@@ -89,7 +97,12 @@ export class BatchedText extends THREE.InstancedMesh {
     const aGlyphUV = attribute("aGlyphUV", "vec4");
     const aGlyphBounds = attribute("aGlyphBounds", "vec4");
     const aColor = attribute("aColor", "vec3");
+    const aOpacity = attribute("aOpacity", "float");
     const outlineWidth = uniform(this.outlineWidth);
+    this._outlineColorUniform = uniform(
+      this._outlineColor ? this._outlineColor.clone() : new THREE.Color(0, 0, 0),
+    );
+    this._outlineColorMix = uniform(this._outlineColor ? 1 : 0);
 
     const quadUV = uv();
     material.positionNode = Fn(() => {
@@ -127,9 +140,16 @@ export class BatchedText extends THREE.InstancedMesh {
     const outlineOnly = max(outlineAlpha.sub(fillAlpha), float(0));
 
     const isBlank = aGlyphUV.z.equal(float(0));
-    const alpha = select(isBlank, float(0), max(fillAlpha, outlineOnly));
+    const alpha = select(isBlank, float(0), max(fillAlpha, outlineOnly)).mul(
+      aOpacity,
+    );
 
-    material.colorNode = Fn(() => vec4(aColor, alpha))();
+    // Outline pixels take the halo color (when set); fill pixels keep the
+    // per-member color, with the SDF fill coverage blending the boundary.
+    const haloRGB = mix(aColor, this._outlineColorUniform, this._outlineColorMix);
+    const rgb = mix(haloRGB, aColor, fillAlpha);
+
+    material.colorNode = Fn(() => vec4(rgb, alpha))();
   }
 
   /**
@@ -143,6 +163,7 @@ export class BatchedText extends THREE.InstancedMesh {
     const id = this._memberCount++;
     this._members[id] = text;
     text._batchedText = this;
+    text._memberId = id;
 
     const c = text.color;
     this._memberGlyphs[id] = { glyphStart: 0, glyphCount: 0 };
@@ -159,6 +180,7 @@ export class BatchedText extends THREE.InstancedMesh {
 
     this._members[id] = null;
     text._batchedText = null;
+    text._memberId = -1;
 
     if (id === this._memberCount - 1) {
       this._memberCount--;
@@ -193,6 +215,44 @@ export class BatchedText extends THREE.InstancedMesh {
       this.colorArray[g * 3 + 2] = c.b;
     }
     this.colorAttr.needsUpdate = true;
+  }
+
+  /**
+   * Per-member opacity, multiplied into the SDF coverage alpha.
+   * @param {number} memberId
+   * @param {number} opacity 0..1
+   */
+  setOpacityAt(memberId, opacity) {
+    const text = this._members[memberId];
+    if (!text) return;
+
+    text._opacity = opacity;
+
+    const { glyphStart, glyphCount } = this._memberGlyphs[memberId] ?? {};
+    if (!glyphCount) return;
+
+    for (let g = glyphStart; g < glyphStart + glyphCount; g++) {
+      this.opacityArray[g] = opacity;
+    }
+    this.opacityAttr.needsUpdate = true;
+  }
+
+  /** Halo color behind the fill; set to null for the legacy same-color outline. */
+  get outlineColor() {
+    return this._outlineColor;
+  }
+
+  set outlineColor(color) {
+    if (color == null) {
+      this._outlineColor = null;
+      if (this._outlineColorMix) this._outlineColorMix.value = 0;
+      return;
+    }
+    this._outlineColor = new THREE.Color(color);
+    if (this._outlineColorUniform) {
+      this._outlineColorUniform.value.copy(this._outlineColor);
+      this._outlineColorMix.value = 1;
+    }
   }
 
   /**
@@ -274,6 +334,7 @@ export class BatchedText extends THREE.InstancedMesh {
       this._writeGlyphMatrices(t, info, glyphStart, glyphCount);
 
       c.copy(t.color);
+      const memberOpacity = t.opacity;
       for (let g = 0; g < glyphCount; g++) {
         const gi = glyphStart + g;
         const glyph = info.glyphs[g];
@@ -332,6 +393,7 @@ export class BatchedText extends THREE.InstancedMesh {
         this.colorArray[gi * 3] = c.r;
         this.colorArray[gi * 3 + 1] = c.g;
         this.colorArray[gi * 3 + 2] = c.b;
+        this.opacityArray[gi] = memberOpacity;
 
         glyphIndex++;
       }
@@ -343,6 +405,7 @@ export class BatchedText extends THREE.InstancedMesh {
     this.glyphUVAttr.needsUpdate = true;
     this.glyphBoundsAttr.needsUpdate = true;
     this.colorAttr.needsUpdate = true;
+    this.opacityAttr.needsUpdate = true;
     if (this.instanceMatrix) this.instanceMatrix.needsUpdate = true;
 
     callback?.();

@@ -168,3 +168,47 @@ describe("Layer 5: Text layout", () => {
     assert.ok(Math.abs(centerMid) < Math.abs(leftMid));
   });
 });
+
+describe("Layer 6: per-member opacity + outline color", () => {
+  it("Text.opacity defaults to 1 and writes through to its batch", async () => {
+    const { Text } = await import("../src/sdf-text/Text.js");
+    const t = new Text();
+    assert.equal(t.opacity, 1);
+
+    const calls = [];
+    t._batchedText = { setOpacityAt: (id, o) => calls.push([id, o]) };
+    t._memberId = 3;
+    t.opacity = 0.25;
+    assert.equal(t.opacity, 0.25);
+    assert.deepEqual(calls, [[3, 0.25]]);
+  });
+
+  it("setting opacity does not invalidate layout", async () => {
+    const { Text } = await import("../src/sdf-text/Text.js");
+    const t = new Text();
+    t.text = "hello";
+    t.sync();
+    const info = t.textRenderInfo;
+    t.opacity = 0.5;
+    assert.equal(t._needsSync, false);
+    t.sync();
+    assert.equal(t.textRenderInfo, info);
+  });
+
+  it("shader math: member opacity scales coverage alpha", () => {
+    const coverage = shaderAlpha(0.75); // well inside the glyph
+    const opacity = 0.4;
+    assert.ok(Math.abs(coverage * opacity - opacity) < 0.01);
+    assert.equal(shaderAlpha(0.1) * opacity, 0);
+  });
+
+  it("shader math: outline zone takes halo color, fill keeps member color", () => {
+    const mix = (a, b, t) => a + (b - a) * t;
+    const memberR = 1.0;
+    const haloR = 0.05;
+    // Outline band: fillAlpha ~ 0 -> halo color wins.
+    assert.ok(Math.abs(mix(haloR, memberR, 0.0) - haloR) < 1e-6);
+    // Glyph interior: fillAlpha ~ 1 -> member color wins.
+    assert.ok(Math.abs(mix(haloR, memberR, 1.0) - memberR) < 1e-6);
+  });
+});

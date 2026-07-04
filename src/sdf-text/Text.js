@@ -22,9 +22,11 @@ const LAYOUT_DEFAULTS = {
 export class Text extends THREE.Object3D {
   color = new THREE.Color(0xffffff);
 
+  _opacity = 1;
   _needsSync = true;
   _textRenderInfo = null;
   _batchedText = null;
+  _memberId = -1;
 
   constructor() {
     super();
@@ -36,6 +38,20 @@ export class Text extends THREE.Object3D {
   /** @type {import('./TextBuilder.js').TextRenderInfo | null} */
   get textRenderInfo() {
     return this._textRenderInfo;
+  }
+
+  /** Whole-text opacity (0..1). Doesn't trigger re-layout; writes through to
+   * the owning {@link BatchedText}'s per-glyph opacity attribute when batched. */
+  get opacity() {
+    return this._opacity;
+  }
+
+  set opacity(value) {
+    if (this._opacity === value) return;
+    this._opacity = value;
+    if (this._batchedText && this._memberId >= 0) {
+      this._batchedText.setOpacityAt(this._memberId, value);
+    }
   }
 
   /**
