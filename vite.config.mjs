@@ -156,10 +156,10 @@ export default defineConfig(({ mode }) => {
           formats: ["es"],
         },
         rollupOptions: {
-          external: (id) =>
-            id === "three" ||
-            id.startsWith("three/") ||
-            id === "opentype.js",
+          // three is a peer dep (externalized). opentype.js is bundled into an
+          // on-demand chunk so canvas-path consumers never resolve or load it,
+          // and vector-path consumers need nothing installed. See VectorFont.js.
+          external: (id) => id === "three" || id.startsWith("three/"),
         },
         sourcemap: true,
         emptyOutDir: true,
