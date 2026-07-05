@@ -1,5 +1,9 @@
 import * as THREE from "three/webgpu";
-import { layoutText } from "./TextBuilder.js";
+import {
+  layoutText,
+  layoutTextVector,
+  emptyRenderInfo,
+} from "./TextBuilder.js";
 
 const LAYOUT_DEFAULTS = {
   text: "",
@@ -27,6 +31,12 @@ export class Text extends THREE.Object3D {
   _textRenderInfo = null;
   _batchedText = null;
   _memberId = -1;
+
+  /** Vector-outline mode: layout uses real font metrics instead of canvas.
+   * Both are set by the owning {@link BatchedText}. */
+  _vectorMode = false;
+  /** @type {import('./VectorFont.js').VectorFont | null} */
+  _vectorFont = null;
 
   constructor() {
     super();
@@ -65,7 +75,7 @@ export class Text extends THREE.Object3D {
       return;
     }
 
-    this._textRenderInfo = layoutText({
+    const params = {
       text: this.text,
       fontSize: this.fontSize,
       fontFamily: this.fontFamily,
@@ -77,7 +87,22 @@ export class Text extends THREE.Object3D {
       anchorY: this.anchorY,
       textAlign: this.textAlign,
       maxWidth: this.maxWidth,
-    });
+    };
+
+    if (this._vectorMode) {
+      if (!this._vectorFont) {
+        // Font still loading — stay dirty so we re-layout once it arrives.
+        this._textRenderInfo = emptyRenderInfo(params);
+        callback?.();
+        return;
+      }
+      this._textRenderInfo = layoutTextVector({
+        ...params,
+        font: this._vectorFont,
+      });
+    } else {
+      this._textRenderInfo = layoutText(params);
+    }
 
     this._needsSync = false;
     callback?.();

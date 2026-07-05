@@ -15,6 +15,8 @@ import {
   mix,
 } from "three/tsl";
 import { FontAtlas } from "./FontAtlas.js";
+import { VectorFontAtlas } from "./VectorFontAtlas.js";
+import { VectorFont } from "./VectorFont.js";
 
 /** Fraction of each glyph's ink size to grow the quad + sampled sub-rect by,
  * so the outline/AA halo around the ink isn't clipped at the ink bbox. */
@@ -44,11 +46,34 @@ export class BatchedText extends THREE.InstancedMesh {
     /** Contrasting halo color; null keeps the legacy same-color outline. */
     this._outlineColor =
       options.outlineColor != null ? new THREE.Color(options.outlineColor) : null;
-    this.atlas = new FontAtlas(
-      options.fontFamily,
-      options.fontSize,
-      options.atlasSize,
-    );
+
+    // Vector-outline path when a font URL/ArrayBuffer is given; else the
+    // canvas-raster path (default). Both atlases share the same interface.
+    this._vectorMode = options.font != null;
+    /** @type {import('./VectorFont.js').VectorFont | null} */
+    this.vectorFont = null;
+    /** Resolves once the font (if any) is parsed and the atlas is ready. */
+    this.ready = Promise.resolve();
+
+    if (this._vectorMode) {
+      this.atlas = new VectorFontAtlas(options);
+      this.ready = VectorFont.load(options.font).then((font) => {
+        this.vectorFont = font;
+        this.atlas.setFont(font);
+        // Re-layout every member now that real metrics are available.
+        for (let m = 0; m < this._memberCount; m++) {
+          const t = this._members[m];
+          if (t) t._needsSync = true;
+        }
+        return font;
+      });
+    } else {
+      this.atlas = new FontAtlas(
+        options.fontFamily,
+        options.fontSize,
+        options.atlasSize,
+      );
+    }
 
     this._maxTextCount = maxTextCount;
     this._maxGlyphCount = maxGlyphCount;
@@ -164,6 +189,9 @@ export class BatchedText extends THREE.InstancedMesh {
     this._members[id] = text;
     text._batchedText = this;
     text._memberId = id;
+    text._vectorMode = this._vectorMode;
+    text._vectorFont = this.vectorFont;
+    if (this._vectorMode) text._needsSync = true;
 
     const c = text.color;
     this._memberGlyphs[id] = { glyphStart: 0, glyphCount: 0 };
@@ -299,6 +327,7 @@ export class BatchedText extends THREE.InstancedMesh {
     for (let m = 0; m < this._memberCount; m++) {
       const t = this._members[m];
       if (!t) continue;
+      t._vectorFont = this.vectorFont;
       t.sync();
       const info = t.textRenderInfo;
       if (!info) continue;

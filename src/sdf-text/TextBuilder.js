@@ -220,6 +220,207 @@ export function layoutText(params) {
   };
 }
 
+/** Empty layout result — used while a vector font is still loading. */
+export function emptyRenderInfo(params = {}) {
+  return {
+    parameters: { ...params },
+    glyphBounds: new Float32Array(0),
+    glyphs: [],
+    glyphCount: 0,
+    blockBounds: [0, 0, 0, 0],
+    visibleBounds: [0, 0, 0, 0],
+    lineHeight: 0,
+    ascender: 0,
+    descender: 0,
+  };
+}
+
+// ── Vector layout (real font metrics via VectorFont) ────────────────────────
+
+function vecLineAdvance(lineHeight, font, fontSize) {
+  const scale = fontSize / font.unitsPerEm;
+  const natural = (font.ascender - font.descender + font.lineGap) * scale;
+  if (lineHeight === "normal" || lineHeight == null) return natural;
+  const n = parseFloat(lineHeight);
+  return Number.isFinite(n) ? n * fontSize : natural;
+}
+
+/** Advance width of a run in text units, including kerning + letter spacing. */
+function vecMeasureRun(font, str, letterSpacing, scale) {
+  let w = 0;
+  for (let i = 0; i < str.length; i++) {
+    w += font.advanceWidth(str[i]) * scale;
+    if (i < str.length - 1) {
+      w += font.kerning(str[i], str[i + 1]) * scale + letterSpacing;
+    }
+  }
+  return w;
+}
+
+function vecBreakLines(text, maxWidth, font, letterSpacing, scale) {
+  if (!Number.isFinite(maxWidth) || maxWidth <= 0) return text.split("\n");
+
+  const paragraphs = text.split("\n");
+  const lines = [];
+
+  for (const paragraph of paragraphs) {
+    if (paragraph === "") {
+      lines.push("");
+      continue;
+    }
+    let line = "";
+    const words = paragraph.split(/(\s+)/);
+    for (const word of words) {
+      const test = line + word;
+      const w = vecMeasureRun(font, test, letterSpacing, scale);
+      if (line && w > maxWidth) {
+        lines.push(line);
+        line = word.trimStart();
+      } else {
+        line = test;
+      }
+    }
+    if (line.length > 0 || paragraph === "") lines.push(line);
+  }
+
+  return lines.length ? lines : [""];
+}
+
+/**
+ * Layout a string using true font metrics: unitsPerEm scaling, advances from
+ * hmtx, kerning from kern/GPOS pairs, and ascender/descender from OS-2/hhea.
+ * Produces the same {@link TextRenderInfo} shape as {@link layoutText}, so
+ * {@link BatchedText} consumes it unchanged.
+ *
+ * @param {object} params
+ * @param {import('./VectorFont.js').VectorFont} params.font
+ * @param {string} [params.text]
+ * @param {number} [params.fontSize]
+ * @param {number} [params.letterSpacing]
+ * @param {string|number} [params.lineHeight]
+ * @param {number|string} [params.anchorX]
+ * @param {number|string} [params.anchorY]
+ * @param {string} [params.textAlign]
+ * @param {number} [params.maxWidth]
+ * @returns {TextRenderInfo}
+ */
+export function layoutTextVector(params) {
+  const {
+    font,
+    text = "",
+    fontSize = 1,
+    letterSpacing = 0,
+    lineHeight = "normal",
+    anchorX = 0,
+    anchorY = 0,
+    textAlign = "left",
+    maxWidth = Infinity,
+  } = params;
+
+  if (!font) return emptyRenderInfo(params);
+
+  const scale = fontSize / font.unitsPerEm;
+  const ascender = font.ascender * scale;
+  const descender = font.descender * scale;
+  const lineAdvance = vecLineAdvance(lineHeight, font, fontSize);
+  const lines = vecBreakLines(text, maxWidth, font, letterSpacing, scale);
+
+  /** @type {{ char: string, bounds: number[] }[]} */
+  const glyphs = [];
+  let blockMinX = Infinity;
+  let blockMinY = Infinity;
+  let blockMaxX = -Infinity;
+  let blockMaxY = -Infinity;
+
+  let baselineY = 0;
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
+    const lineWidth = vecMeasureRun(font, line, letterSpacing, scale);
+
+    let alignOffset = 0;
+    if (textAlign === "center") alignOffset = (maxWidth - lineWidth) * 0.5;
+    else if (textAlign === "right") alignOffset = maxWidth - lineWidth;
+
+    let penX = alignOffset;
+
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+
+      // Kerning tucks the current glyph toward the previous one.
+      if (i > 0) penX += font.kerning(line[i - 1], ch) * scale;
+
+      const advance = font.advanceWidth(ch) * scale;
+      const bbox = ch === " " ? null : font.boundingBox(ch);
+
+      let minX;
+      let maxX;
+      let minY;
+      let maxY;
+
+      if (bbox) {
+        // True ink bounding box (Y-up), matching the atlas glyph's ink so the
+        // quad and sampled sub-rect describe the same shape (no stretching).
+        minX = penX + bbox.x1 * scale;
+        maxX = penX + bbox.x2 * scale;
+        minY = baselineY + bbox.y1 * scale;
+        maxY = baselineY + bbox.y2 * scale;
+      } else {
+        minX = penX;
+        maxX = penX + advance;
+        minY = baselineY + descender;
+        maxY = baselineY + ascender;
+      }
+
+      glyphs.push({ char: ch, bounds: [minX, minY, maxX, maxY] });
+
+      blockMinX = Math.min(blockMinX, minX);
+      blockMinY = Math.min(blockMinY, minY);
+      blockMaxX = Math.max(blockMaxX, maxX);
+      blockMaxY = Math.max(blockMaxY, maxY);
+
+      penX += advance + letterSpacing;
+    }
+
+    baselineY -= lineAdvance;
+  }
+
+  if (!glyphs.length) {
+    blockMinX = blockMinY = blockMaxX = blockMaxY = 0;
+  }
+
+  const blockWidth = blockMaxX - blockMinX;
+  const blockHeight = blockMaxY - blockMinY;
+  const offsetX = resolveAnchor(anchorX, blockWidth, "x") - blockMinX;
+  const offsetY = resolveAnchor(anchorY, blockHeight, "y") - blockMinY;
+
+  const glyphBounds = new Float32Array(glyphs.length * 4);
+  for (let i = 0; i < glyphs.length; i++) {
+    const b = glyphs[i].bounds;
+    glyphBounds[i * 4] = b[0] + offsetX;
+    glyphBounds[i * 4 + 1] = b[1] + offsetY;
+    glyphBounds[i * 4 + 2] = b[2] + offsetX;
+    glyphBounds[i * 4 + 3] = b[3] + offsetY;
+  }
+
+  const anchoredMinX = blockMinX + offsetX;
+  const anchoredMinY = blockMinY + offsetY;
+  const anchoredMaxX = blockMaxX + offsetX;
+  const anchoredMaxY = blockMaxY + offsetY;
+
+  return {
+    parameters: { ...params },
+    glyphBounds,
+    glyphs,
+    glyphCount: glyphs.length,
+    blockBounds: [anchoredMinX, anchoredMinY, anchoredMaxX, anchoredMaxY],
+    visibleBounds: [anchoredMinX, anchoredMinY, anchoredMaxX, anchoredMaxY],
+    lineHeight: lineAdvance,
+    ascender,
+    descender,
+  };
+}
+
 /**
  * @typedef {object} TextRenderInfo
  * @property {object} parameters
