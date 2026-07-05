@@ -327,8 +327,9 @@ batched.sync();
 ```
 
 If a sync already happened (e.g. text shown while the font streamed in),
-call `batched.resetAtlas()` once the font resolves to blank the atlas and
-re-rasterize every glyph.
+call `batched.resetAtlas()` once the font resolves — it blanks the atlas,
+re-layouts every member with the loaded font's metrics, and re-rasterizes
+every glyph.
 
 #### `BatchedText`
 

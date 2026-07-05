@@ -93,13 +93,19 @@ export class BatchedText extends THREE.InstancedMesh {
   }
 
   /**
-   * Blank the font atlas and re-sync every member. Call once a webfont has
-   * loaded ({@code await document.fonts.load(...)}) if any text was synced
-   * before it was ready — otherwise fallback-font glyphs stay baked in the
-   * atlas cache forever.
+   * Blank the font atlas, re-layout and re-sync every member. Call once a
+   * webfont has loaded ({@code await document.fonts.load(...)}) if any text
+   * was synced before it was ready — otherwise fallback-font glyphs stay
+   * baked in the atlas cache forever. Members must re-layout too: their
+   * cached metrics were measured with the fallback font, and stale quad
+   * bounds against re-rasterized atlas ink stretch glyphs.
    */
   resetAtlas() {
     this.atlas.reset();
+    for (let m = 0; m < this._memberCount; m++) {
+      const t = this._members[m];
+      if (t) t._needsSync = true;
+    }
     this.sync();
   }
 
