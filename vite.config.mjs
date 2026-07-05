@@ -156,7 +156,10 @@ export default defineConfig(({ mode }) => {
           formats: ["es"],
         },
         rollupOptions: {
-          external: (id) => id === "three" || id.startsWith("three/"),
+          external: (id) =>
+            id === "three" ||
+            id.startsWith("three/") ||
+            id === "opentype.js",
         },
         sourcemap: true,
         emptyOutDir: true,

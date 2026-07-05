@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>SDF Text — Vector Outlines</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; }
+      body {
+        font: 14px system-ui, sans-serif;
+        background: #0b0d12;
+        color: #e8ecf4;
+        overflow: hidden;
+      }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #hud {
+        position: fixed;
+        left: 1rem;
+        top: 1rem;
+        max-width: 24rem;
+        padding: 0.75rem 1rem;
+        background: rgba(8, 10, 16, 0.82);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 8px;
+        line-height: 1.45;
+      }
+      #hud h1 { font-size: 1rem; margin-bottom: 0.35rem; }
+      #hud p { opacity: 0.8; font-size: 0.85rem; }
+      #mode { color: #7dd3fc; font-variant-numeric: tabular-nums; }
+    </style>
+    <script type="module" src="./main.js"></script>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <div id="hud">
+      <h1>SDF Text — Vector Outlines</h1>
+      <p>
+        Glyph SDFs generated from real font outlines (opentype.js + Path2D +
+        EDT), with true kerning and metrics.
+      </p>
+      <p>Path: <span id="mode">vector</span></p>
+    </div>
+  </body>
+</html>
