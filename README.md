@@ -314,6 +314,22 @@ string — layout expands to per-glyph bounds (clean-room counterpart to
 the batch atlas rasterizes, or glyph ink gets stretched to mismatched
 metrics (layout defaults to `monospace`).
 
+**Webfonts:** the atlas caches each glyph forever on first `sync()`. If a
+member syncs before its webfont has loaded, the fallback-font shapes get
+baked in permanently. Await the font before creating text:
+
+```javascript
+await document.fonts.load(`${fontSize}px "MyFont"`); // or document.fonts.ready
+const label = new Text();
+label.fontFamily = '"MyFont", sans-serif';
+// ...
+batched.sync();
+```
+
+If a sync already happened (e.g. text shown while the font streamed in),
+call `batched.resetAtlas()` once the font resolves to blank the atlas and
+re-rasterize every glyph.
+
 #### `BatchedText`
 
 Instanced mesh renderer. Each `addText(text)` member expands to N glyph quads

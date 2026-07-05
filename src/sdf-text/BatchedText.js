@@ -92,6 +92,17 @@ export class BatchedText extends THREE.InstancedMesh {
     return this._memberCount;
   }
 
+  /**
+   * Blank the font atlas and re-sync every member. Call once a webfont has
+   * loaded ({@code await document.fonts.load(...)}) if any text was synced
+   * before it was ready — otherwise fallback-font glyphs stay baked in the
+   * atlas cache forever.
+   */
+  resetAtlas() {
+    this.atlas.reset();
+    this.sync();
+  }
+
   buildMaterial(material) {
     const sdfTex = texture(this.atlas.texture);
     const aGlyphUV = attribute("aGlyphUV", "vec4");

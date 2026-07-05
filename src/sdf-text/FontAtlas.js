@@ -53,6 +53,20 @@ export class FontAtlas {
     return this.glyphs.has(char);
   }
 
+  /**
+   * Drop every cached glyph and blank the atlas. Slots are reassigned from
+   * scratch on the next {@link getGlyph}/{@link ensureGlyphs}. Use after a
+   * webfont finishes loading so glyphs baked from the fallback font are
+   * re-rasterized. Callers holding glyph UVs must re-sync afterward
+   * ({@link BatchedText.resetAtlas} does this).
+   */
+  reset() {
+    this.glyphs.clear();
+    this.nextSlot = 0;
+    this.atlasData.fill(0);
+    this.texture.needsUpdate = true;
+  }
+
   ensureGlyphs(chars) {
     let added = false;
     for (const ch of chars) {
