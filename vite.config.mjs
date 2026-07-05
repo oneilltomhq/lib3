@@ -144,6 +144,7 @@ export default defineConfig(({ mode }) => {
             waves: resolve(__dirname, "src/waves.js"),
             knotMorph: resolve(__dirname, "src/knotMorph.js"),
             thunder: resolve(__dirname, "src/thunder.js"),
+            nimbus: resolve(__dirname, "src/nimbus/index.js"),
             metaballs: resolve(__dirname, "src/metaballs.js"),
             lissajous: resolve(__dirname, "src/lissajous.js"),
             journey: resolve(__dirname, "src/journey.js"),

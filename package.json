@@ -19,6 +19,9 @@
     "./thunder": {
       "import": "./dist/thunder.js"
     },
+    "./nimbus": {
+      "import": "./dist/nimbus.js"
+    },
     "./metaballs": {
       "import": "./dist/metaballs.js"
     },

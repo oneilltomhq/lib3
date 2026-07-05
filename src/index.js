@@ -59,6 +59,14 @@ export { VolumeSmokeNodeMaterial } from "./smokeMaterial.js";
 export { ComputeMipAwareBlueNoise } from "./blueNoise.js";
 export { createThunderNode, createThunderStateMachine, THUNDER_PRESETS } from './thunder.js';
 export {
+  bakeCumulonimbusTexture,
+  bakeDetailNoiseTexture,
+  NimbusCloudMaterial,
+  generateBoltPaths,
+  LightningBoltMesh,
+  StormDirector,
+} from './nimbus/index.js';
+export {
   lissajousAt,
   lissajousBrightness,
   lissajousBeamColor,
