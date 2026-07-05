@@ -1,10 +1,10 @@
 import * as THREE from "three/webgpu";
 import { computeSDF } from "../sdf/edt.js";
 
-const GLYPH_SIZE = 64;
-const SDF_SIZE = 32;
-const SDF_PADDING = 4;
-const MAX_DISTANCE = 8;
+const GLYPH_SIZE = 128;
+const SDF_SIZE = 64;
+const SDF_PADDING = 8;
+const MAX_DISTANCE = 16;
 
 export class FontAtlas {
   cellSize = SDF_SIZE;
@@ -12,7 +12,7 @@ export class FontAtlas {
   constructor(
     fontFamily = "monospace",
     fontSize = GLYPH_SIZE - SDF_PADDING * 2,
-    atlasSize = 512,
+    atlasSize = 1024,
   ) {
     this.fontFamily = fontFamily;
     this.fontSize = fontSize;
@@ -80,6 +80,13 @@ export class FontAtlas {
 
   rasterizeGlyph(char) {
     const slot = this.nextSlot++;
+    const capacity = this.cols * this.rows;
+    if (slot >= capacity) {
+      console.warn(
+        `FontAtlas: slot capacity (${capacity}) exceeded; glyph "${char}" ` +
+          `spills past the atlas and renders with bad UVs. Increase atlasSize.`,
+      );
+    }
     const col = slot % this.cols;
     const row = Math.floor(slot / this.cols);
     const atlasW = this.atlasSize;
