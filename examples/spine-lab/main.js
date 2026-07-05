@@ -49,10 +49,12 @@ const ctrl = {
   follow: 2.2, // head-follow spring frequency (Hz)
   lag: 0.6, // tail speed as a fraction of head speed — how late the pulse arrives below
   ring: 0.35, // damping ratio: <1 rings (giegling), →1 tight (ostgut)
+  conduct: 0.7, // 0 = passive string (pulse decays upward), 1 = every joint re-drives (alive, can scream)
   fleshAmt: 1, // 0 = raw skeleton pose (A/B the flesh live)
   stiff: 30, // flesh spring to pose
   fleshDamp: 4.5,
   arc: 0.4, // phrase energy ramp depth (builds, snaps back at the head)
+  bones: 0.6, // segment-ring visibility — the skeleton and its pulse, watchable
 };
 
 // ---- stage ------------------------------------------------------------------------
@@ -166,6 +168,31 @@ mat.colorNode = mix(color(WIRE_COLORS.head), color(WIRE_COLORS.tail), chainT)
 const mesh = new THREE.Mesh(geo, mat);
 scene.add(mesh);
 
+// ---- the bones: one ring per segment — the mechanics, watchable -------------------
+// Each ring sits at its joint's height, rides its joint's springs (so lag and
+// swell are visible as geometry), and GLOWS with its joint's speed — the kick
+// flashes the bottom ring and the flash climbs the tube, dimming as friction
+// eats it. Segments, pulse, decay: seen, not explained.
+const bones = [];
+{
+  const group = new THREE.Group();
+  for (let k = 0; k < K; k++) {
+    const uGlow = uniform(0);
+    const m = new THREE.MeshBasicNodeMaterial({
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    m.colorNode = mix(color(WIRE_COLORS.head), color(WIRE_COLORS.tail), k / (K - 1))
+      .mul(uGlow);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.47, 0.005, 6, 64), m);
+    ring.rotation.x = Math.PI / 2;
+    group.add(ring);
+    bones.push({ ring, uGlow });
+  }
+  scene.add(group);
+}
+
 // ---- rack -------------------------------------------------------------------------
 const rack = new Rack({ storage: localStorageAdapter("spineLabRack") });
 rack.add("/beat/bpm", bindKey(conductor, "bpm"), { min: 60, max: 160, unit: "bpm" });
@@ -178,10 +205,12 @@ rack.add("/head/epiRatio", bindKey(ctrl, "epiRatio"), { min: 0, max: 6 });
 rack.add("/chain/follow", bindKey(ctrl, "follow"), { min: 0.5, max: 8, unit: "Hz" });
 rack.add("/chain/lag", bindKey(ctrl, "lag"), { min: 0.25, max: 1 });
 rack.add("/chain/ring", bindKey(ctrl, "ring"), { min: 0.1, max: 1.2 });
+rack.add("/chain/conduct", bindKey(ctrl, "conduct"), { min: 0, max: 1 });
 rack.add("/flesh/amount", bindKey(ctrl, "fleshAmt"), { min: 0, max: 1 });
 rack.add("/flesh/stiff", bindKey(ctrl, "stiff"), { min: 4, max: 120 });
 rack.add("/flesh/damp", bindKey(ctrl, "fleshDamp"), { min: 0.5, max: 12 });
 rack.add("/arc/depth", bindKey(ctrl, "arc"), { min: 0, max: 1 });
+rack.add("/view/bones", bindKey(ctrl, "bones"), { min: 0, max: 1 });
 if (new URLSearchParams(location.search).has("bridge")) connectRackBridge(rack);
 window.rack = rack;
 window.__spine = { sx, sz, sw, sy }; // debug/verification hook
@@ -189,11 +218,13 @@ window.__spine = { sx, sz, sw, sy }; // debug/verification hook
 // two ends of the reference spectrum — feel the difference in the body
 const PRESETS = {
   giegling: { "/head/impulse": 0.38, "/head/anticipate": 0.5, "/chain/follow": 1.6,
-    "/chain/lag": 0.45, "/chain/ring": 0.24, "/flesh/stiff": 16, "/flesh/damp": 3,
-    "/beat/swing": 0.22, "/beat/bpm": 118, "/head/epiBeats": 12, "/head/epiRatio": 2.2 },
+    "/chain/lag": 0.45, "/chain/ring": 0.24, "/chain/conduct": 0.55, "/flesh/stiff": 16,
+    "/flesh/damp": 3, "/beat/swing": 0.22, "/beat/bpm": 118, "/head/epiBeats": 12,
+    "/head/epiRatio": 2.2 },
   ilian: { "/head/impulse": 0.82, "/head/anticipate": 0.2, "/chain/follow": 3.6,
-    "/chain/lag": 0.8, "/chain/ring": 0.55, "/flesh/stiff": 60, "/flesh/damp": 6,
-    "/beat/swing": 0.05, "/beat/bpm": 132, "/head/epiBeats": 6, "/head/epiRatio": 4 },
+    "/chain/lag": 0.8, "/chain/ring": 0.55, "/chain/conduct": 0.8, "/flesh/stiff": 60,
+    "/flesh/damp": 6, "/beat/swing": 0.05, "/beat/bpm": 132, "/head/epiBeats": 6,
+    "/head/epiRatio": 4 },
 };
 
 // ---- panel: generated straight from the rack ---------------------------------------
@@ -286,12 +317,14 @@ renderer.init().then(async () => {
     sy[0].target = ctrl.anticipate * 0.14 * f * f * f;
     sw[0].target = 1;
 
-    // the chain: a damped STRING, not a cascade. Each interior segment chases
-    // the midpoint of its neighbours (snapshot first, so the pass is
-    // symmetric); the tail chases the one above. One-directional
-    // follow-the-leader was 16 resonant filters in series — Q-gain per stage
-    // MULTIPLIES down a cascade and the giegling preset self-oscillated into
-    // a 70x flat-spin. A string disperses energy both ways and just… dances.
+    // the chain: two coupling regimes, blended by `conduct`.
+    //   string  (0): chase the midpoint of your neighbours — damped wave
+    //                equation. Stable, but the pulse decays before the tail.
+    //   cascade (1): chase the segment below at full amplitude — every joint
+    //                re-drives the signal. Alive to the tip, but 16 resonant
+    //                stages in series can self-oscillate…
+    // …so the lateral chain runs through a soft saturator: the scream clips
+    // warm instead of exploding, like a filter driven past self-oscillation.
     for (let k = 0; k < K; k++) {
       const freq = ctrl.follow * Math.pow(ctrl.lag, k / (K - 1));
       for (const springs of [sx, sz, sy, sw]) {
@@ -300,13 +333,32 @@ renderer.init().then(async () => {
         s.zeta = ctrl.ring;
         if (k > 0) {
           const prev = springs[k - 1].value;
-          s.target = k < K - 1 ? (prev + springs[k + 1].value) / 2 : prev;
+          const avg = k < K - 1 ? (prev + springs[k + 1].value) / 2 : prev;
+          s.target = avg + (prev - avg) * ctrl.conduct;
         }
       }
     }
+    const LIMIT = 0.9; // lateral soft-clip (metres-ish)
     for (let k = 0; k < K; k++) {
       for (const springs of [sx, sz, sy, sw]) springs[k].update(dt);
+      sx[k].value = LIMIT * Math.tanh(sx[k].value / LIMIT);
+      sz[k].value = LIMIT * Math.tanh(sz[k].value / LIMIT);
+      sw[k].value = Math.min(1.9, Math.max(0.25, sw[k].value));
       segs.array[k].set(sx[k].value, sz[k].value, sw[k].value, sy[k].value);
+    }
+
+    // the bones ride their joints; glow = joint speed → the pulse is light
+    for (let k = 0; k < K; k++) {
+      const { ring, uGlow } = bones[k];
+      ring.position.set(
+        sx[k].value,
+        -HEIGHT / 2 + (k / (K - 1)) * HEIGHT + sy[k].value,
+        sz[k].value,
+      );
+      ring.scale.setScalar(sw[k].value);
+      const speed = Math.hypot(
+        sx[k].velocity, sz[k].velocity, sy[k].velocity, sw[k].velocity * 0.4);
+      uGlow.value = ctrl.bones * (0.1 + Math.min(1.6, speed * 2.4));
     }
 
     // the flesh: GPU integration toward the fresh pose
