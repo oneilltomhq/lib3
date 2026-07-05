@@ -1,8 +1,3 @@
-import * as opentypeNS from "opentype.js";
-
-// opentype.js ships as UMD; the ESM interop surfaces the API on `default`.
-const opentype = opentypeNS.default ?? opentypeNS;
-
 /**
  * Parsed font with real typographic metrics and kerning — clean-room
  * counterpart to three-blocks TextBuilder's font layer.
@@ -10,8 +5,9 @@ const opentype = opentypeNS.default ?? opentypeNS;
  * Metrics come straight from the font tables (OS/2 typo, hhea, hmtx, kern/GPOS)
  * via opentype.js — no hardcoded ascender/descender guesses.
  *
- * Note: opentype.js parses TrueType/OpenType/WOFF. WOFF2 (brotli) is NOT
- * supported; use a `.ttf`/`.otf`/`.woff` source.
+ * opentype.js is loaded lazily on first {@link load} so canvas-path consumers
+ * of sdf-text never resolve or download it. It parses TrueType/OpenType/WOFF;
+ * WOFF2 (brotli) is NOT supported — use a `.ttf`/`.otf`/`.woff` source.
  */
 export class VectorFont {
   /**
@@ -65,6 +61,10 @@ export class VectorFont {
       }
       buffer = await res.arrayBuffer();
     }
+    // Lazy so canvas-path consumers never pull opentype.js into their bundle.
+    // opentype.js ships as UMD; ESM interop surfaces the API on `default`.
+    const opentypeNS = await import("opentype.js");
+    const opentype = opentypeNS.default ?? opentypeNS;
     const font = opentype.parse(buffer);
     return new VectorFont(font, src);
   }
