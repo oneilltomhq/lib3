@@ -62,6 +62,10 @@ export class VectorFontAtlas {
   setFont(font) {
     if (this.font === font) return;
     this.font = font;
+    this.reset();
+  }
+
+  reset() {
     this.glyphs.clear();
     this.nextSlot = 0;
     this.atlasData.fill(0);
