@@ -308,18 +308,28 @@ Rasterizes glyphs via `OffscreenCanvas`, runs `computeSDF`, uploads a
 #### `Text`
 
 Layout member with `text`, `fontSize`, `anchorX`/`anchorY`, `letterSpacing`,
-and `sync()`. Assign a full string — layout expands to per-glyph bounds
-(clean-room counterpart to `@three-blocks/core` Text layout API).
+`maxWidth` (word-boundary wrapping), `opacity`, and `sync()`. Assign a full
+string — layout expands to per-glyph bounds (clean-room counterpart to
+`@three-blocks/core` Text layout API). Set `fontFamily` to the same family
+the batch atlas rasterizes, or glyph ink gets stretched to mismatched
+metrics (layout defaults to `monospace`).
 
 #### `BatchedText`
 
 Instanced mesh renderer. Each `addText(text)` member expands to N glyph quads
-on `sync()`. Use `setMatrixAt(memberId, matrix)` for position-only updates.
+on `sync()`. Use `setMatrixAt(memberId, matrix)` for position-only updates,
+`setColorAt(memberId, color)` / `setOpacityAt(memberId, o)` for per-member
+styling without a re-sync. Options: `outlineWidth`, `outlineColor` (contrast
+halo behind the fill; defaults to the fill color), `fontFamily`, `fontSize`,
+`atlasSize`.
 
 ```javascript
 import { BatchedText, Text } from "@oneilltom/lib3/sdf-text";
 
-const batched = new BatchedText(64, 1024, undefined, { outlineWidth: 0.03 });
+const batched = new BatchedText(64, 1024, undefined, {
+  outlineWidth: 0.03,
+  outlineColor: 0x05060a, // dark halo for legibility over bright scenes
+});
 scene.add(batched);
 
 const label = new Text();
