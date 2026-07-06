@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <title>Anisotropic fBm Volume — lib3</title>
+    <script>
+      // framed by the examples index: pure presentation, no instrument panel
+      if (self !== top) document.documentElement.classList.add("embed");
+    </script>
     <script type="module" src="./main.js"></script>
     <style>
       :root{ --panel:#0c0f17d9; --line:#1c2230; --txt:#aeb6c6; --dim:#5a6478; --accent:#39e6c3; }
@@ -30,6 +34,7 @@
         border-radius:4px; padding:4px 7px; font:inherit; font-size:10px; cursor:pointer; }
       .presets button:hover{ border-color:var(--accent); color:var(--accent); }
       .presets button.op{ color:var(--dim); }
+      html.embed #panel{ display:none; }
     </style>
   </head>
   <body>

@@ -4,6 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Flubber (compute) — particle field in a 3D texture</title>
+  <script>
+    // framed by the examples index: pure presentation, no HUD
+    if (self !== top) document.documentElement.classList.add("embed");
+  </script>
   <script type="module" src="./main.js"></script>
   <style>
     html, body { margin: 0; height: 100%; background: #000; overflow: hidden;
@@ -19,6 +23,7 @@
       display: none; position: fixed; inset: 0; place-content: center;
       color: #9aa3b5; text-align: center; padding: 2rem;
     }
+    html.embed #hud { display: none; }
   </style>
 </head>
 <body>

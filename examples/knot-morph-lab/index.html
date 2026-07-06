@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <title>Knot Morph — Rhythm Lab</title>
+    <script>
+      // framed by the examples index: pure presentation, no instrument panel
+      if (self !== top) document.documentElement.classList.add("embed");
+    </script>
     <script type="module" src="./main.js"></script>
     <style>
       :root{ --panel:#0c0f17d9; --line:#1c2230; --txt:#aeb6c6; --dim:#5a6478; --accent:#39e6c3; }
@@ -17,8 +21,6 @@
         margin:0 0 2px; display:flex; align-items:center; gap:8px; }
       #beat{ width:10px; height:10px; border-radius:50%; background:var(--accent); opacity:.15; }
       .sub{ color:var(--dim); margin:0 0 10px; font-size:10px; }
-      h2{ font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--dim);
-        margin:12px 0 4px; border-bottom:1px solid var(--line); padding-bottom:3px; }
       .row{ display:flex; align-items:center; gap:8px; margin:5px 0; }
       .row label{ flex:0 0 62px; color:var(--txt); }
       .row input[type=range]{ flex:1; min-width:0; height:3px; -webkit-appearance:none; appearance:none;
@@ -34,16 +36,18 @@
       .presets button:hover{ border-color:var(--accent); color:var(--accent); }
       .presets button.op{ color:var(--dim); }
       .foot{ color:var(--dim); font-size:10px; margin-top:10px; }
+      html.embed #panel{ display:none; }
     </style>
   </head>
   <body>
     <canvas id="canvas"></canvas>
     <div id="panel">
       <h1><span id="beat"></span>knot morph — rhythm lab</h1>
-      <p class="sub">primitives edition: 120bpm four-on-the-floor, everything
-        else zeroed. raise ONE slider, feel it against the beat, judge, zero,
-        next. compose from survivors. ＋ capture · shift+click = overwrite ·
-        ✕ = delete · ⌀ = zero all.</p>
+      <p class="sub">primitives edition: 120bpm four-on-the-floor, all sliders
+        zeroed. raise ONE, feel it against the beat, judge, zero, next.
+        compose from survivors — "tom's find" preset holds one answer.
+        presets are rack snapshots (recorded in the session). ＋ capture ·
+        shift+click = overwrite · ✕ = delete · ⌀ = zero all.</p>
       <div class="presets" id="presets"></div>
       <div id="params"></div>
       <div class="foot" id="readout">—</div>
