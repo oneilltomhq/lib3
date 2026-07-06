@@ -63,6 +63,7 @@ const conductor = new Conductor({ bpm: 116, swing: 0.06 });
 const rack = new Rack({ storage: localStorageAdapter("flubberComputeRack") });
 
 const ctrl = {
+  wall: 1, // 1: backdrop follows the camera; 0: frozen (refraction works either way)
   kick: 5, // radial force per accented hit (decays exponentially)
 };
 let pump = 0;
@@ -109,6 +110,7 @@ function placeBackdrop() {
   const h = 2 * span * Math.tan((camera.fov * Math.PI) / 360) * 1.15;
   backdrop.scale.set(h * camera.aspect, h, 1);
 }
+placeBackdrop();
 
 // ---- pass 1: particle sim -----------------------------------------------------------
 const N = 128;
@@ -285,6 +287,7 @@ conductor.voice({
 
 // ---- jack panel ---------------------------------------------------------------------
 rack.add("/room/bpm", bindKey(conductor, "bpm"), { min: 60, max: 160, unit: "bpm" });
+rack.add("/room/wall", bindKey(ctrl, "wall"), { min: 0, max: 1, label: "wall follows camera" });
 rack.add("/flub/flow", bindUniform(uFlowAmt), { min: 0, max: 8 });
 rack.add("/flub/flowFreq", bindUniform(uFlowFreq), { min: 0.4, max: 4 });
 rack.add("/flub/cohesion", bindUniform(uCohesion), { min: 0.5, max: 6 });
@@ -332,7 +335,7 @@ renderer.setAnimationLoop(() => {
 
   synth.update(elapsed);
   controls.update();
-  placeBackdrop();
+  if (ctrl.wall >= 0.5) placeBackdrop();
 
   // grab pass: everything but the glass, into the refraction source
   marchMesh.visible = false;
