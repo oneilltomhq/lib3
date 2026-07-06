@@ -14,10 +14,12 @@ import {
   mix,
   normalize,
   positionWorld,
+  screenSize,
   screenUV,
   texture,
   uniform,
   uniformArray,
+  vec2,
   vec3,
 } from "three/tsl";
 
@@ -194,6 +196,12 @@ export class RaymarchedMetaballs {
    * @param {number} [opts.quadDistance]
    * @param {number} [opts.quadZ]
    * @param {number} [opts.boundsPadding]
+   * @param {(sdf: (p: Node) => Node) => (p: Node) => Node} [opts.wrapSdf]
+   *   Wraps the smooth-min sphere field with a custom field (domain warp,
+   *   displacement...). Marching and normal estimation both see the wrapped
+   *   field. Displacement grows the surface beyond the sphere radii — pad
+   *   `boundsPadding` to match, and keep the wrapped field Lipschitz-ish
+   *   (scale it down) or the march overshoots.
    */
   constructor({
     camera,
@@ -212,6 +220,7 @@ export class RaymarchedMetaballs {
     quadDistance,
     quadZ = 2.4,
     boundsPadding = 0.1,
+    wrapSdf = null,
   } = {}) {
     if (!camera) {
       throw new Error("RaymarchedMetaballs requires a camera.");
@@ -253,6 +262,7 @@ export class RaymarchedMetaballs {
     this.tFar = uniform(10);
     this._sceneTexture = texture(sceneTexture);
     this._rimTexture = texture(rimTexture);
+    this._wrapSdf = wrapSdf;
 
     this.material = this._createMaterial();
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.material);
@@ -387,15 +397,16 @@ export class RaymarchedMetaballs {
     material.transparent = true;
     material.depthWrite = false;
 
-    const sdf = Fn(([p]) =>
+    const baseSdf = (p) =>
       smoothMinSphereSdf({
         p,
         positions: this.positions,
         radii: this.radii,
         count: this.count,
         smoothing: this.smoothingUniform,
-      })
-    );
+      });
+    const field = this._wrapSdf ? this._wrapSdf(baseSdf) : baseSdf;
+    const sdf = Fn(([p]) => field(p));
 
     material.colorNode = Fn(() => {
       const ro = cameraPosition;
@@ -432,9 +443,11 @@ export class RaymarchedMetaballs {
         epsilon: this.normalEpsilon,
       });
       const fres = rd.dot(n).abs().oneMinus().pow(2);
-      const refracted = this._sceneTexture.sample(
-        screenUV.add(n.xy.mul(this.refractionStrength.negate()))
-      );
+      // aspect-corrected offset: equal normals shift equal PIXELS, not UV
+      const refractOffset = n.xy
+        .mul(vec2(screenSize.y.div(screenSize.x), 1))
+        .mul(this.refractionStrength.negate());
+      const refracted = this._sceneTexture.sample(screenUV.add(refractOffset));
       const rim = this._rimTexture.sample(screenUV);
       const rimContribution = rim.mul(fres.mul(this.rimStrength));
       const beauty = refracted
