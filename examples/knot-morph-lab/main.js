@@ -37,6 +37,8 @@ const P = {
   pop: { value: 0.6 }, // PULSE × scale
   squash: { value: 0.85 }, // PULSE × shape (anisotropic)
   punch: { value: 0.74 }, // PULSE × camera (fov punch-in)
+  springy: { value: 1.0 }, // PULSE physics — 0: bare exp envelope, 1: kicked spring (overshoot, ring-back, downbeat accent)
+  drop: { value: 0.85 }, // PULSE × vertical jolt — the kick punches the knot down, spring carries it back
   bend: { value: 0 }, // PULSE × morph phase — kick SHOVES the morph, spring rings it back (squelch)
   bloom: { value: 0 }, // PULSE × morph depth — geometry blooms toward (3,5) on the kick
   sharp: { value: 0 }, // PULSE × wavefront shape — crests peak on the kick
@@ -171,9 +173,22 @@ let bodyPump = 0;
 // an underdamped spring rings it back — squelch lives HERE, not in the
 // transform. bend scales the shove.
 const bendSpring = new Spring({ value: 0, target: 0, freq: 2.2, zeta: 0.32 });
+
+// the body's drum: same kicks, but into a mass instead of a waveshape.
+// freq 4.5 peaks ~45ms after the hit (a punch, not a swell); kick sized so
+// the accented downbeat peaks ≈1. off-beats land at 0.6 and the ring-back
+// dips negative (follow-through), settling fully before the next hit.
+const bodySpring = new Spring({ value: 0, target: 0, freq: 4.5, zeta: 0.35 });
+// the drop: every kick also punches the knot DOWN; the spring carries it
+// back up through overshoot — spine-lab's "head compresses and dips"
+const dropSpring = new Spring({ value: 0, target: 0, freq: 3.2, zeta: 0.45 });
 conductor.voice({
   steps: 4, hits: 4,
-  onHit({ accent }) { bendSpring.kick(P.bend.value * 7 * accent); },
+  onHit({ accent }) {
+    bendSpring.kick(P.bend.value * 7 * accent);
+    bodySpring.kick(44 * accent);
+    dropSpring.kick(-2.8 * P.drop.value * accent);
+  },
 });
 let travelPhase = 0;
 
@@ -335,6 +350,9 @@ renderer.init().then(() => {
     rack.update(dt); // the render loop is the ramp clock
     const pump = conductor.pump(FIXED.sharp);
     bodyPump += (pump - bodyPump) * Math.min(1, dt / FIXED.attack);
+    // the body crossfades exp-envelope ↔ kicked spring; duck stays on the raw
+    // pump — sidechain wants the instant attack
+    const body = bodyPump + (bodySpring.update(dt) - bodyPump) * P.springy.value;
 
     // each primitive maps its 0–1 slider to a real range, independently —
     // no crosstalk, so one raised slider = one isolated principle
@@ -344,14 +362,15 @@ renderer.init().then(() => {
     const orbitR =
       P.orbit.value *
       0.1 *
-      (1 - FIXED.pumpOrbit + FIXED.pumpOrbit * bodyPump);
+      (1 - FIXED.pumpOrbit + FIXED.pumpOrbit * body);
 
-    const base = FIXED.scale * (1 + P.pop.value * 0.2 * bodyPump);
-    const sq = P.squash.value * 0.18 * bodyPump;
+    const base = FIXED.scale * (1 + P.pop.value * 0.45 * body);
+    const sq = P.squash.value * 0.32 * body;
     mesh.scale.set(base * (1 + sq * 0.5), base * (1 - sq), base * (1 + sq * 0.5));
     mesh.position.x = Math.cos(loop) * orbitR;
     mesh.position.z = Math.sin(loop) * orbitR * 0.7;
-    mesh.position.y = Math.sin(loop * 2) * orbitR * 0.35;
+    mesh.position.y =
+      Math.sin(loop * 2) * orbitR * 0.35 + dropSpring.update(dt);
 
     // morph phase locked to the grid; depths feed the spatial mix node.
     // bend = spring-rung phase shove; bloom = depth pumping with the kick;
@@ -364,8 +383,8 @@ renderer.init().then(() => {
     const rLoop = (2 * Math.PI * beatHz) / FIXED.loopBeats;
     travelPhase += (rGrid + (rLoop - rGrid) * P.wind.value) * dt;
     uTravelPhase.value = travelPhase;
-    uSharp.value = 1 + P.sharp.value * 3 * bodyPump;
-    const bloomMod = 1 - P.bloom.value * (1 - bodyPump);
+    uSharp.value = 1 + P.sharp.value * 3 * body;
+    const bloomMod = 1 - P.bloom.value * (1 - body);
     uMorphD.value = P.morph.value * bloomMod;
     uTravelD.value = P.travel.value * bloomMod;
     mesh.rotation.y += P.spin.value * 0.8 * dt;
@@ -378,7 +397,7 @@ renderer.init().then(() => {
       Math.sin(elapsed * 0.13 + 1.7) * FIXED.wobble * 0.6 +
       Math.cos(loop) * roll * 0.8;
 
-    camera.fov = 60 - P.punch.value * 6 * bodyPump;
+    camera.fov = 60 - P.punch.value * 12 * body;
     camera.updateProjectionMatrix();
 
     beatEl.style.opacity = 0.15 + 0.85 * pump;
