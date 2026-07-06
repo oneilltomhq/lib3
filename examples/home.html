@@ -20,11 +20,9 @@
         font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace;
       }
 
-      /* three scenes, stacked fullscreen, each revealed through roaming ink */
+      /* three scenes, stacked fullscreen, each revealed through roaming flubber */
       .layer {
         position: fixed; inset: 0;
-        -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
-        -webkit-mask-size: 100% 100%; mask-size: 100% 100%;
         will-change: -webkit-mask-image, mask-image;
       }
       .layer iframe {
@@ -125,6 +123,8 @@
       }
       const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10);
       const lerp = (a, b, t) => a + (b - a) * t;
+      const smooth = (a, b, x) =>
+        x <= a ? 0 : x >= b ? 1 : ((x = (x - a) / (b - a)), x * x * (3 - 2 * x));
       function vnoise(x, y, z) {
         const X = Math.floor(x), Y = Math.floor(y), Z = Math.floor(z);
         const u = fade(x - X), v = fade(y - Y), w = fade(z - Z);
@@ -144,7 +144,7 @@
         return s / norm;
       }
       // curl of ψ: rotate the gradient 90° — swirl with zero divergence,
-      // so the ink circulates forever and never piles up
+      // so the mass circulates forever and never parks in a corner
       function curl(u, v, t, e, oct) {
         const gx = (fbm(u + e, v, t, oct) - fbm(u - e, v, t, oct)) / (2 * e);
         const gy = (fbm(u, v + e, t, oct) - fbm(u, v - e, t, oct)) / (2 * e);
@@ -158,13 +158,13 @@
       }
 
       // ---- portals ---------------------------------------------------------------
-      // Rung 4's smoke, weaponized as a mask: each portal is a swarm of
-      // particles riding the curl field around a roaming centre, drawn into a
-      // small offscreen canvas that fades instead of clearing — motion leaves
-      // ink, and the ink IS the reveal (mask-image, upscaled so the low-res
-      // grain feathers into softness).
-      const P = 1400; // particles per portal
-      const MSCALE = 3.2; // mask canvas downscale — upscaling = free feather
+      // 2D flubber, moved by rung 4: each portal is a handful of soft blobs.
+      // Their mask gradients union into one emergent mass (the flubber
+      // silhouette — no circle survives), but they MOVE like the smoke demo:
+      // born at the roaming core, gliding out along the curl field's
+      // streamlines, swelling and shrinking through a lifetime — so the mass
+      // expands, contracts, stretches into the flow, and re-merges.
+      const K = 11; // blobs per portal
       const stage = document.getElementById("stage");
       const ringsCv = document.getElementById("rings");
       const ringsCtx = ringsCv.getContext("2d");
@@ -188,12 +188,10 @@
         label.innerHTML = `${f.name}<small>${f.story}</small>`;
         document.body.appendChild(label);
 
-        const mcv = document.createElement("canvas");
         const a = (i / FEATURED.length) * Math.PI * 2 - Math.PI / 2;
         return {
           ...f,
-          layer, label, mcv,
-          mctx: mcv.getContext("2d", { willReadFrequently: true }),
+          layer, label,
           x: W / 2 + Math.cos(a) * W * 0.28,
           y: H / 2 + Math.sin(a) * H * 0.28,
           // each portal rides its own z-slice of ψ (a different story of the
@@ -202,7 +200,7 @@
           zOff: i * 7.31,
           hx: Math.cos(a + Math.PI / 3) * 24,
           hy: Math.sin(a + Math.PI / 3) * 24,
-          parts: null, // seeded on first frame, once sizes are known
+          blobs: null, // seeded on first frame, once sizes are known
           hover: 0,
         };
       });
@@ -234,13 +232,8 @@
       // ---- the roam ---------------------------------------------------------------
       const SC = 0.0016; // portal-centre field: swirls a good fraction of the screen
       const STR = 110; // curl push on the portal centre, px/s
-      const SC2 = 0.004; // ink field: the swirls the filaments actually trace
-      const STR2 = 190; // curl push on the ink, px/s (rung 4's /smoke/strength)
-      // no spring: a centre-pull is divergent — it fights the incompressible
-      // field and smears the filament structure. Containment comes from
-      // LIFETIME instead: particles are born at the roaming core, ride the
-      // streamlines outward, and die — an emitter, not a cage.
-      const FADE_A = 0.024; // trail decay per frame — the ink's memory
+      const SC2 = 0.0035; // blob field: the swirls the mass actually traces
+      const STR2 = 85; // curl push on the blobs, px/s — a glide, not a boil
       const EVOLVE = 0.035; // ψ drift through time
       const OCT = 3;
       const wrap = (v, m) => ((v % m) + m) % m;
@@ -252,49 +245,70 @@
         return d;
       };
 
-      function sizeCanvases() {
+      function sizeRings() {
         W = innerWidth; H = innerHeight;
         const dpr = Math.min(devicePixelRatio || 1, 2);
         ringsCv.width = W * dpr; ringsCv.height = H * dpr;
         ringsCv.style.width = W + "px"; ringsCv.style.height = H + "px";
         ringsCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        for (const p of portals) {
-          p.mcv.width = Math.ceil(W / MSCALE);
-          p.mcv.height = Math.ceil(H / MSCALE);
-        }
       }
-      sizeCanvases();
-      addEventListener("resize", sizeCanvases);
+      sizeRings();
+      addEventListener("resize", sizeRings);
 
-      function spawn(q, p, baseR) {
-        q.x = wrap(p.x + gauss() * baseR * 0.18, W);
-        q.y = wrap(p.y + gauss() * baseR * 0.18, H);
-        q.px = q.x; q.py = q.y;
-        q.age = 0;
-        q.life = 2 + Math.random() * 3;
-        q.cx = 0; q.cy = 0;
+      // a blob's life: born small at the core, swells as it rides the flow
+      // out, shrinks away and is reborn — the mass breathes without popping
+      function spawnBlob(b, p, baseR) {
+        b.x = wrap(p.x + gauss() * baseR * 0.15, W);
+        b.y = wrap(p.y + gauss() * baseR * 0.15, H);
+        b.age = 0;
+        b.life = 3.5 + Math.random() * 3.5;
+        b.rMax = baseR * (0.48 + 0.24 * Math.random());
+        b.phase = Math.random() * 100;
+        b.r = 0;
       }
       function seed(p, baseR) {
-        p.parts = [];
-        for (let k = 0; k < P; k++) {
-          const q = {};
-          spawn(q, p, baseR);
-          q.age = Math.random() * q.life; // stagger deaths from the start
-          p.parts.push(q);
+        p.blobs = [];
+        for (let k = 0; k < K; k++) {
+          const b = {};
+          spawnBlob(b, p, baseR);
+          b.age = Math.random() * b.life; // stagger the generations
+          p.blobs.push(b);
         }
       }
+
+      // wrapped copies of a circle that touch the viewport (pacman: a blob
+      // leaving the right edge is already entering on the left)
+      function copies(x, y, r, out) {
+        for (const ox of [0, -W, W]) {
+          for (const oy of [0, -H, H]) {
+            const cx = x + ox, cy = y + oy;
+            if (cx + r > 0 && cx - r < W && cy + r > 0 && cy - r < H)
+              out.push([cx, cy]);
+          }
+        }
+        return out;
+      }
+
+      // flubber's compact-support cubic kernel, 2D: full inside, zero past r
+      function density(p, x, y) {
+        if (!p.blobs) return 0;
+        let sum = 0;
+        for (const b of p.blobs) {
+          if (b.r < 1) continue;
+          const dx = tdelta(b.x, x, W), dy = tdelta(b.y, y, H);
+          const q = 1 - (dx * dx + dy * dy) / (b.r * b.r);
+          if (q > 0) sum += q * q * q;
+        }
+        return sum;
+      }
+      const ISO = 0.09; // ≈ the mid-fade of the mask gradient — the isoline hugs the glow
 
       let mx = -1e4, my = -1e4;
       addEventListener("pointermove", (e) => { mx = e.clientX; my = e.clientY; });
 
-      // the ink is the truth: a point is "in" a portal iff its mask has ink there
       function portalAt(x, y) {
         for (let i = portals.length - 1; i >= 0; i--) {
-          const p = portals[i];
-          const d = p.mctx.getImageData(
-            Math.min(p.mcv.width - 1, x / MSCALE) | 0,
-            Math.min(p.mcv.height - 1, y / MSCALE) | 0, 1, 1).data;
-          if (d[3] > 90) return p;
+          if (density(portals[i], x, y) > ISO) return portals[i];
         }
         return null;
       }
@@ -304,39 +318,89 @@
         if (p) location.href = "/" + p.href;
       });
 
-      let t = 40.0, last = performance.now(), frameNo = 0;
+      // ---- marching squares: the isosurface, as an outline ------------------------
+      const CELL = 18;
+      // per-case segments between edge crossings (0 top, 1 right, 2 bottom, 3 left)
+      const MS = [
+        [], [[3, 0]], [[0, 1]], [[3, 1]],
+        [[1, 2]], [[3, 0], [1, 2]], [[0, 2]], [[3, 2]],
+        [[2, 3]], [[0, 2]], [[0, 1], [2, 3]], [[1, 2]],
+        [[3, 1]], [[0, 1]], [[3, 0]], [],
+      ];
+      let field = new Float32Array(0);
+      function drawContour(p) {
+        const gw = Math.ceil(W / CELL) + 1, gh = Math.ceil(H / CELL) + 1;
+        if (field.length < gw * gh) field = new Float32Array(gw * gh);
+        else field.fill(0);
+
+        // accumulate each blob copy over its own bounding box only
+        for (const b of p.blobs) {
+          if (b.r < 1) continue;
+          for (const [x, y] of copies(b.x, b.y, b.r, [])) {
+            const i0 = Math.max(0, Math.floor((x - b.r) / CELL));
+            const i1 = Math.min(gw - 1, Math.ceil((x + b.r) / CELL));
+            const j0 = Math.max(0, Math.floor((y - b.r) / CELL));
+            const j1 = Math.min(gh - 1, Math.ceil((y + b.r) / CELL));
+            const r2 = b.r * b.r;
+            for (let j = j0; j <= j1; j++) {
+              for (let i = i0; i <= i1; i++) {
+                const dx = i * CELL - x, dy = j * CELL - y;
+                const q = 1 - (dx * dx + dy * dy) / r2;
+                if (q > 0) field[j * gw + i] += q * q * q;
+              }
+            }
+          }
+        }
+
+        ringsCtx.beginPath();
+        for (let j = 0; j < gh - 1; j++) {
+          for (let i = 0; i < gw - 1; i++) {
+            const a = field[j * gw + i], b = field[j * gw + i + 1];
+            const c = field[(j + 1) * gw + i + 1], d = field[(j + 1) * gw + i];
+            const idx = (a > ISO ? 1 : 0) | (b > ISO ? 2 : 0) |
+                        (c > ISO ? 4 : 0) | (d > ISO ? 8 : 0);
+            if (idx === 0 || idx === 15) continue;
+            const x0 = i * CELL, y0 = j * CELL;
+            // interpolated crossing point per edge
+            const pt = (edge) => {
+              switch (edge) {
+                case 0: return [x0 + CELL * ((ISO - a) / (b - a)), y0];
+                case 1: return [x0 + CELL, y0 + CELL * ((ISO - b) / (c - b))];
+                case 2: return [x0 + CELL * ((ISO - d) / (c - d)), y0 + CELL];
+                case 3: return [x0, y0 + CELL * ((ISO - a) / (d - a))];
+              }
+            };
+            for (const [e0, e1] of MS[idx]) {
+              const [ax, ay] = pt(e0), [bx, by] = pt(e1);
+              ringsCtx.moveTo(ax, ay);
+              ringsCtx.lineTo(bx, by);
+            }
+          }
+        }
+        ringsCtx.strokeStyle = p.color;
+        ringsCtx.globalAlpha = 0.3 + p.hover * 0.35;
+        ringsCtx.lineWidth = 1;
+        ringsCtx.stroke();
+        ringsCtx.globalAlpha = 1;
+      }
+
+      let t = 40.0, last = performance.now();
       function frameLoop(now) {
         const dt = Math.min((now - last) / 1000, 0.05);
         last = now;
-        frameNo++;
         if (!calm) t += EVOLVE * dt * 60;
 
-        // sized from AREA: the three swarms together own about half the screen
+        // sized from AREA: the three masses together own about half the screen
         const baseR = Math.sqrt((W * H * 0.34) / Math.PI);
-        const CAP = baseR * 1.05; // safety net past the lifetime containment
+        const CAP = baseR * 0.95; // safety net past the lifetime containment
         const e = 2 * SC, e2 = 2 * SC2;
-        const dot = Math.max(1.6, baseR / 150); // streak width, mask-canvas px
 
         ringsCtx.clearRect(0, 0, W, H);
         const hoverP = portalAt(mx, my);
         document.body.style.cursor = hoverP ? "pointer" : "";
 
-        let pi = -1;
         for (const p of portals) {
-          pi++;
-          if (!p.parts) {
-            seed(p, baseR);
-            if (calm) {
-              // reduced motion: one static soft pool instead of living ink
-              const g = p.mctx.createRadialGradient(
-                p.x / MSCALE, p.y / MSCALE, 0,
-                p.x / MSCALE, p.y / MSCALE, baseR * 0.75 / MSCALE);
-              g.addColorStop(0, "rgba(255,255,255,1)");
-              g.addColorStop(1, "rgba(255,255,255,0)");
-              p.mctx.fillStyle = g;
-              p.mctx.fillRect(0, 0, p.mcv.width, p.mcv.height);
-            }
-          }
+          if (!p.blobs) seed(p, baseR);
           if (!calm) {
             const [cx, cy] = curl(p.x * SC, p.y * SC, t + p.zOff, e, OCT);
             p.x += (cx * STR + p.hx) * dt;
@@ -345,65 +409,41 @@
           }
           p.hover += ((hoverP === p ? 1 : 0) - p.hover) * Math.min(1, dt * 8);
 
-          const m = p.mctx;
-          if (!calm) {
-            // fade instead of clear → motion leaves ink (rung 4's whole trick)
-            m.globalCompositeOperation = "destination-out";
-            m.fillStyle = `rgba(0,0,0,${FADE_A})`;
-            m.fillRect(0, 0, p.mcv.width, p.mcv.height);
-            m.globalCompositeOperation = "source-over";
-          }
-          m.strokeStyle = `rgba(255,255,255,${0.8 + 0.2 * p.hover})`;
-          m.lineWidth = dot;
-          m.lineCap = "round";
-          ringsCtx.strokeStyle = p.color;
-          ringsCtx.globalAlpha = 0.16;
-          ringsCtx.lineWidth = 1.2;
-
-          // each particle draws the streak it just flew — segments chain
-          // frame over frame into continuous filaments along the streamlines
-          m.beginPath();
-          ringsCtx.beginPath();
           const zi = t * 1.3 + p.zOff + 31.7;
-          for (let k = 0; k < P; k++) {
-            const q = p.parts[k];
+          for (const b of p.blobs) {
             if (!calm) {
-              // stagger: refresh half the field samples each frame (rung 4)
-              if ((k & 1) === (frameNo & 1)) {
-                const [gx, gy] = curl(q.x * SC2, q.y * SC2, zi, e2, OCT);
-                q.cx = gx; q.cy = gy;
-              }
-              q.px = q.x; q.py = q.y;
-              q.x = wrap(q.x + q.cx * STR2 * dt, W);
-              q.y = wrap(q.y + q.cy * STR2 * dt, H);
-              q.age += dt;
-              const px = tdelta(q.x, p.x, W), py = tdelta(q.y, p.y, H);
-              if (q.age > q.life || px * px + py * py > CAP * CAP) {
-                spawn(q, p, baseR);
+              const [gx, gy] = curl(b.x * SC2, b.y * SC2, zi, e2, OCT);
+              // the portal's own drift carries its blobs — the mass travels
+              // as one and the flow sculpts it on top
+              b.x = wrap(b.x + (gx * STR2 + p.hx) * dt, W);
+              b.y = wrap(b.y + (gy * STR2 + p.hy) * dt, H);
+              b.age += dt;
+              const px = tdelta(b.x, p.x, W), py = tdelta(b.y, p.y, H);
+              if (b.age > b.life || px * px + py * py > CAP * CAP) {
+                spawnBlob(b, p, baseR);
               }
             }
-            // skip the stitch frame when a particle wraps or respawns
-            if (Math.abs(q.x - q.px) < W / 2 && Math.abs(q.y - q.py) < H / 2) {
-              m.moveTo(q.px / MSCALE, q.py / MSCALE);
-              m.lineTo(q.x / MSCALE, q.y / MSCALE);
-              // same ink, tinted, on the overlay — the portal stays legible
-              // even where the scene behind it is black
-              ringsCtx.moveTo(q.px, q.py);
-              ringsCtx.lineTo(q.x, q.y);
-            }
+            const u = b.age / b.life;
+            const env = smooth(0, 0.25, u) * (1 - smooth(0.6, 1, u));
+            const breath = fbm(t * 0.4 + b.phase, 5.1, 2.3, 2) * 2 - 1;
+            b.r = b.rMax * env * (1 + 0.1 * breath) * (1 + 0.1 * p.hover);
           }
-          m.stroke();
-          ringsCtx.stroke();
-          ringsCtx.globalAlpha = 1;
 
-          // the ink becomes the mask. Encoding is the dear part (~4ms), so
-          // masks refresh round-robin — one portal per frame; the trails'
-          // own smear hides the 50ms latency completely
-          if (frameNo % portals.length === pi || frameNo < 4) {
-            const url = `url(${p.mcv.toDataURL()})`;
-            p.layer.style.webkitMaskImage = url;
-            p.layer.style.maskImage = url;
+          // the mask is the union of every blob's soft gradient — mask layers
+          // composite additively, so overlapping blobs read as one mass
+          const layers = [];
+          for (const b of p.blobs) {
+            if (b.r < 1) continue;
+            for (const [x, y] of copies(b.x, b.y, b.r, [])) {
+              layers.push(
+                `radial-gradient(circle ${b.r.toFixed(1)}px at ${x.toFixed(1)}px ${y.toFixed(1)}px, #000 55%, transparent 96%)`);
+            }
           }
+          const mask = layers.join(",");
+          p.layer.style.webkitMaskImage = mask;
+          p.layer.style.maskImage = mask;
+
+          drawContour(p);
 
           // label rides the portal centre, clamped just inside the frame
           p.label.style.left = Math.max(90, Math.min(W - 90, p.x)) + "px";
