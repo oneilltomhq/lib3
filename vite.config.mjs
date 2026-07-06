@@ -1,10 +1,12 @@
 // vite.config.js (root - for library build + examples serve/build)
 import { defineConfig } from "vite";
+import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import glob from "fast-glob"; // For dynamic example inputs
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const HOME_TEMPLATE = resolve(__dirname, "examples/home.html");
 
 // Helpers and plugins to auto-generate an index for examples/
 function humanize(input) {
@@ -20,24 +22,18 @@ function humanize(input) {
     .replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
-function renderIndex(entries) {
-  const items = entries
-    .map(({ href, title }) => `<li><a href="/${href}">${title}</a></li>`)
-    .join("");
-  return `<!doctype html><html><head><meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width,initial-scale=1"/>
-    <title>Examples</title>
-    <style>
-      body{font:16px system-ui;margin:2rem;}
-      h1{margin:0 0 1rem;}
-      ul{list-style:none;padding:0;margin:0;}
-      li{margin:.5rem 0;}
-      a{color:#2563eb;text-decoration:none;}
-      a:hover{text-decoration:underline;}
-    </style></head>
-    <body><h1>Examples</h1>
-    <ul id="list">${items}</ul>
-    </body></html>`;
+function buildExampleEntries(files) {
+  return files
+    .map((file) => {
+      const href = file.replace(/index.html$/, "");
+      const title = humanize(href);
+      return { href, title };
+    })
+    .sort((a, b) => a.title.localeCompare(b.title));
+}
+
+function renderIndex(entries, template = readFileSync(HOME_TEMPLATE, "utf8")) {
+  return template.replace("__EXAMPLES_JSON__", JSON.stringify(entries));
 }
 
 const exampleIndexFiles = () =>
@@ -54,13 +50,7 @@ function examplesIndexPlugin() {
       server.middlewares.use(async (req, res, next) => {
         if (req.url !== "/" && req.url !== "/index.html") return next();
         const files = await exampleIndexFiles();
-        const entries = files
-          .map((file) => {
-            const href = file.replace(/index.html$/, "");
-            const title = humanize(href);
-            return { href, title };
-          })
-          .sort((a, b) => a.title.localeCompare(b.title));
+        const entries = buildExampleEntries(files);
         const html = renderIndex(entries);
         res.setHeader("Content-Type", "text/html");
         res.end(html);
@@ -75,13 +65,7 @@ function examplesIndexBuildPlugin() {
     apply: "build",
     generateBundle() {
       const files = exampleIndexFilesSync();
-      const entries = files
-        .map((file) => {
-          const href = file.replace(/index.html$/, "");
-          const title = humanize(href);
-          return { href, title };
-        })
-        .sort((a, b) => a.title.localeCompare(b.title));
+      const entries = buildExampleEntries(files);
       const html = renderIndex(entries);
       this.emitFile({ type: "asset", fileName: "index.html", source: html });
     },
