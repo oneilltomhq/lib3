@@ -21,6 +21,10 @@ import { Conductor, Spring } from "../../src/conductor.js";
 import { Rack, bindKey, bindUniform, connectRackBridge, localStorageAdapter } from "../../src/rack.js";
 
 const canvas = document.getElementById("view");
+if (!navigator.gpu) {
+  document.getElementById("fail").style.display = "grid";
+  throw new Error("WebGPU unavailable");
+}
 const renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -73,33 +77,48 @@ controls.enableDamping = true;
 controls.minDistance = 2.2;
 controls.maxDistance = 7;
 
-// backdrop plane: the synth on the far wall, sized to overfill the frustum
-const BACKDROP_Z = -2.4;
+// backdrop: the synth wall, re-placed every frame camera-facing a fixed
+// depth beyond the origin — orbiting can never look past its edge into void
+const BACKDROP_DEPTH = 2.4;
 const backdropMat = new THREE.MeshBasicNodeMaterial();
 backdropMat.colorNode = texture(o0.display.texture);
 const backdrop = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), backdropMat);
-backdrop.position.z = BACKDROP_Z;
 scene.add(backdrop);
-function sizeBackdrop() {
-  const dist = camera.position.length() - BACKDROP_Z;
-  const h = 2 * dist * Math.tan((camera.fov * Math.PI) / 360) * 1.6;
+function placeBackdrop() {
+  const camDist = camera.position.length();
+  const span = camDist + BACKDROP_DEPTH;
+  backdrop.position.copy(camera.position).multiplyScalar(-BACKDROP_DEPTH / camDist);
+  backdrop.quaternion.copy(camera.quaternion);
+  const h = 2 * span * Math.tan((camera.fov * Math.PI) / 360) * 1.15;
   backdrop.scale.set(h * camera.aspect, h, 1);
 }
-sizeBackdrop();
+
+// grab pass: the glass refracts what is ACTUALLY rendered behind it — each
+// frame the scene minus the glass is drawn here and sampled at screenUV, so
+// orbiting can't shear the ball interior off the backdrop
+const grabRT = new THREE.RenderTarget(1, 1);
+function sizeGrab() {
+  const dpr = renderer.getPixelRatio();
+  grabRT.setSize(window.innerWidth * dpr, window.innerHeight * dpr);
+}
+sizeGrab();
 
 // ---- the liquid -------------------------------------------------------------------
 // blobs orbit on interleaved spirals; the kick pumps their radius, a
 // euclidean voice surges the swirl — circles that breathe with the floor
 const BLOBS = 6;
-const blobs = Array.from({ length: BLOBS }, (_, i) => ({
-  position: new THREE.Vector3(),
-  radius: 0.3,
-  base: 0.2 + 0.13 * Math.abs(Math.sin(i * 2.39996)), // golden-angle sizes
-  orbit: 0.55 + 0.22 * i,
-  phase: (i / BLOBS) * Math.PI * 2,
-  rate: 1 - 0.09 * i, // outer rings lag — the spiral look
-  bob: i * 1.7,
-}));
+const blobs = Array.from({ length: BLOBS }, (_, i) => {
+  const base = 0.2 + 0.13 * Math.abs(Math.sin(i * 2.39996)); // golden-angle sizes
+  return {
+    position: new THREE.Vector3(),
+    radius: base,
+    base,
+    orbit: 0.55 + 0.22 * i,
+    phase: (i / BLOBS) * Math.PI * 2,
+    rate: 1 - 0.09 * i, // outer rings lag — the spiral look
+    bob: i * 1.7,
+  };
+});
 
 const swirl = new Spring({ value: 0.28, target: 0.28, freq: 0.5, zeta: 1.0 });
 const swirlBoost = new Spring({ value: 0, target: 0, freq: 0.7, zeta: 0.85 });
@@ -112,10 +131,10 @@ conductor.voice({
 const metaballs = new RaymarchedMetaballs({
   camera,
   sources: blobs,
-  sceneTexture: o0.display.texture, // stable targets: set once, never re-point
-  rimTexture: o1.display.texture,
+  sceneTexture: grabRT.texture,
+  rimTexture: o1.display.texture, // stable target: set once, never re-point
   smoothing: 0.3,
-  quadZ: 3.0, // quad ~1m in front of the start camera, always nearer than the blobs
+  quadZ: 3.0, // march quad ~1m ahead of the START camera; rays go camera→quad, so blobs nearer than it still render
   refractionStrength: 0.26,
   fresnelStrength: 0.9,
   fresnelBase: 0.5,
@@ -128,7 +147,9 @@ rack.add("/room/bpm", bindKey(conductor, "bpm"), { min: 60, max: 160, unit: "bpm
 rack.add("/room/swing", bindKey(conductor, "swing"), { min: 0, max: 0.6 });
 rack.add("/synth/flow", bindKey(ctrl, "flow"), { min: 2, max: 40 });
 rack.add("/synth/melt", bindKey(ctrl, "melt"), { min: 0, max: 0.12 });
-rack.add("/synth/hue", bindKey(ctrl, "hueDrift"), { min: 0, max: 0.05 });
+// hue accumulates through the feedback loop — past ~0.008 it runs away to
+// neon no matter what saturate() bleeds out; the knob only offers what survives
+rack.add("/synth/hue", bindKey(ctrl, "hueDrift"), { min: 0, max: 0.008 });
 rack.add("/synth/duck", bindKey(ctrl, "duck"), { min: 0, max: 1 });
 rack.add("/balls/swirl", bindKey(swirl, "target"),
   { label: "swirl (spring target)", min: 0, max: 1.5, unit: "rad/s" });
@@ -155,14 +176,20 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  sizeBackdrop();
+  sizeGrab();
 });
 
 // ---- loop -------------------------------------------------------------------------
+// one clamped dt drives hydra, blobs and the conductor — a hidden tab can't
+// desync musical time from synth time
+let elapsed = 0;
 const clock = new THREE.Clock();
+const fpsEl = document.getElementById("fps");
+let fpsFrames = 0;
+let fpsStamp = 0;
 renderer.setAnimationLoop(() => {
   const dt = Math.min(0.1, clock.getDelta());
-  const t = clock.elapsedTime;
+  elapsed += dt;
 
   conductor.update(dt);
   rack.update(dt); // the render loop is the ramp clock
@@ -173,17 +200,33 @@ renderer.setAnimationLoop(() => {
     b.phase += spin * b.rate * dt;
     b.position.set(
       Math.cos(b.phase) * b.orbit,
-      Math.sin(b.phase * 0.7 + b.bob) * 0.45,
+      // slow independent bob — the piece breathes even at /balls/swirl = 0
+      Math.sin(b.phase * 0.7 + b.bob + elapsed * 0.35) * 0.45,
       Math.sin(b.phase) * b.orbit * 0.35,
     );
     b.radius = b.base * (1 + ctrl.throb * pump);
   }
 
-  synth.update(t); // hydra passes (offscreen; also ticks the dynamic args)
+  synth.update(elapsed); // hydra passes (offscreen; also ticks the dynamic args)
   metaballs.update();
-
   controls.update();
-  renderer.render(scene, camera);
-});
+  placeBackdrop();
 
-window.__ready = true;
+  // grab pass: everything but the glass, into the refraction source
+  const glassVisible = metaballs.mesh.visible;
+  metaballs.mesh.visible = false;
+  renderer.setRenderTarget(grabRT);
+  renderer.render(scene, camera);
+  renderer.setRenderTarget(null);
+  metaballs.mesh.visible = glassVisible;
+
+  renderer.render(scene, camera);
+  window.__ready = true; // after the first real frame, not before
+
+  fpsFrames++;
+  if (elapsed - fpsStamp >= 0.5) {
+    fpsEl.textContent = `${(fpsFrames / (elapsed - fpsStamp)).toFixed(0)} fps`;
+    fpsFrames = 0;
+    fpsStamp = elapsed;
+  }
+});

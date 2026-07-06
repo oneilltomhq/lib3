@@ -15,6 +15,10 @@
     }
     #hud b { color: #39e6c3; font-weight: 600; letter-spacing: .08em; }
     #hud .dim { color: #5a6478; }
+    #fail {
+      display: none; position: fixed; inset: 0; place-content: center;
+      color: #9aa3b5; text-align: center; padding: 2rem;
+    }
   </style>
 </head>
 <body>
@@ -24,7 +28,9 @@
     <span class="dim">liquid glass refracting a live video synth · 120bpm room ·
     drag to orbit<br>
     console: rack.params() · rack.set("/synth/flow", 24, 2000) ·
-    rack.snap("nice")</span>
+    rack.snap("nice")</span><br>
+    <span id="fps" class="dim"></span>
   </div>
+  <div id="fail">WebGPU unavailable — this demo needs a WebGPU-capable browser.</div>
 </body>
 </html>
