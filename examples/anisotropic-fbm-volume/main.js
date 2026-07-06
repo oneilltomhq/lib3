@@ -70,11 +70,45 @@ camera.position.set(0.45, 0.25, 0.75);
 
 const renderer = new THREE.WebGPURenderer({
   canvas: document.getElementById("canvas"),
-  antialias: true,
+  // no MSAA: the volume has no geometry edges to smooth (one back-facing box),
+  // and the jitter grain IS the look — multisampling only buys bandwidth cost
+  antialias: false,
 });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setClearColor(0x000000);
+
+// ---- adaptive resolution -------------------------------------------------------------
+// The march is fragment-bound: DPR 2 = 4× the rays for a soft volume that
+// can't show the extra pixels (measured: ghost smoke 60fps @ DPR 1 vs ~25 @
+// DPR 2 on an iGPU). So resolution is a quality *tier*, not the device's
+// business: drop a tier when a whole second averages slow, climb back only
+// after a few seconds comfortably fast (asymmetric on purpose — dropping is
+// urgent, climbing is a luxury).
+const RES_TIERS = [0.75, 1.0, 1.25, 1.5];
+let resTier = RES_TIERS.indexOf(
+  window.devicePixelRatio >= 1.5 ? 1.5 : 1.0
+);
+let resGoodSeconds = 0;
+renderer.setPixelRatio(RES_TIERS[resTier]);
+
+function adaptResolution(fps) {
+  if (fps < 45 && resTier > 0) {
+    resTier--;
+    resGoodSeconds = 0;
+    renderer.setPixelRatio(RES_TIERS[resTier]);
+  } else if (fps > 57 && resTier < RES_TIERS.length - 1) {
+    // never climb past what the display can show
+    if (RES_TIERS[resTier + 1] > window.devicePixelRatio) return;
+    resGoodSeconds++;
+    if (resGoodSeconds >= 3) {
+      resTier++;
+      resGoodSeconds = 0;
+      renderer.setPixelRatio(RES_TIERS[resTier]);
+    }
+  } else {
+    resGoodSeconds = 0;
+  }
+}
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -96,8 +130,13 @@ const orbit = {
   incline: 0.4, // radians, tilt of the orbital plane
   bobAmp: 0.15, // extra vertical bob, layered on top of the tilt
   bobFreq: 2.7, // bob cycles per orbit (non-integer -> the path never repeats flat)
-  period: 28, // seconds per orbit at mean motion
+  period: 34, // seconds per orbit at mean motion
   M: 0, // mean anomaly; advances linearly with time
+  // radius breathing: the semi-major axis itself swells/contracts ~10% over
+  // ~2.7 orbits (non-integer again), so successive perihelion passes come in
+  // at different depths instead of retracing the same groove
+  breatheAmp: 0.1,
+  breatheFreq: 0.37, // in mean-anomaly units
 };
 let orbitBlend = 0; // 0..1 ease back in after manual interaction, so resuming doesn't snap
 
@@ -109,7 +148,9 @@ function keplerE(M, e) {
 }
 
 function orbitPosition() {
-  const { a, e, incline, bobAmp, bobFreq, M, center } = orbit;
+  const { e, incline, bobAmp, bobFreq, M, center, breatheAmp, breatheFreq } =
+    orbit;
+  const a = orbit.a * (1 + breatheAmp * Math.sin(M * breatheFreq + 1.0));
   const E = keplerE(M, e);
   const bAxis = a * Math.sqrt(1 - e * e);
   const x = a * (Math.cos(E) - e); // the volume sits at the ellipse's focus, not its centre
@@ -117,6 +158,21 @@ function orbitPosition() {
   const y = zFlat * Math.sin(incline) + bobAmp * Math.sin(M * bobFreq);
   const z = zFlat * Math.cos(incline);
   return new THREE.Vector3(center.x + x, center.y + y, center.z + z);
+}
+
+// the gaze wanders a little too: a slow Lissajous offset on the look-at point
+// so the framing isn't pinned dead-centre for the whole orbit (a fixed target
+// is the second thing, after circular paths, that makes auto-cameras read as
+// mechanical). Applied through controls.target so OrbitControls stays the one
+// source of truth for orientation.
+const lookTarget = new THREE.Vector3();
+function orbitLookTarget() {
+  const { M, center } = orbit;
+  return lookTarget.set(
+    center.x + 0.06 * Math.sin(M * 1.3),
+    center.y + 0.05 * Math.sin(M * 0.9 + 1.7),
+    center.z + 0.06 * Math.cos(M * 0.7)
+  );
 }
 
 // pause while the user drags/zooms, resume a couple seconds after they let go
@@ -426,6 +482,69 @@ expBtn.onclick = () => {
   navigator.clipboard?.writeText(text).catch(() => {});
 };
 
+// ---- drift: unattended preset tour ----------------------------------------------------
+// The demo-mode answer to "the parameters should be automated": glide through
+// the preset list forever. Sample-side knobs are free to move per frame;
+// bake-side knobs ride the same lerp because the churn already re-bakes every
+// frame whenever evolve > 0 (which every preset keeps), so the tour costs
+// nothing the sliders didn't. Any manual slider/preset touch hands control
+// back — drift is a screensaver, not a cage.
+const TOUR = ["ghost smoke", "silk veil", "vortex", "ember"];
+const HOLD = 7; // seconds parked on a preset
+const FADE = 6; // seconds gliding to the next
+const drift = { active: false, from: null, leg: 0, t: 0 };
+const driftToggle = document.getElementById("driftToggle");
+
+const smoother = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+
+function driftStart() {
+  drift.from = snapshotParams(); // glide in from wherever the knobs sit now
+  drift.leg = 0;
+  drift.t = 0;
+  drift.active = true;
+}
+
+function driftCancel() {
+  if (!drift.active) return;
+  drift.active = false;
+  driftToggle.checked = false;
+}
+
+function driftUpdate(dt) {
+  const prev = drift.t;
+  drift.t += dt;
+  const to = PRESETS[TOUR[drift.leg % TOUR.length]];
+  if (drift.t < FADE) {
+    const k = smoother(drift.t / FADE);
+    for (const label in inputs) {
+      const a = drift.from[label];
+      const b = to[label];
+      if (a === undefined || b === undefined) continue;
+      const v = a + (b - a) * k;
+      const { inp, val, target } = inputs[label];
+      target.value = v;
+      inp.value = v;
+      val.textContent = v.toFixed(2);
+    }
+    bakeDirty = true; // bake-side knobs are moving
+  } else if (prev < FADE) {
+    applyParams(to); // land exactly on the preset, not one lerp frame shy
+  } else if (drift.t >= FADE + HOLD) {
+    drift.from = { ...to };
+    drift.leg++;
+    drift.t = 0;
+  }
+}
+
+driftToggle?.addEventListener("change", () => {
+  driftToggle.checked ? driftStart() : (drift.active = false);
+});
+paramsEl.addEventListener("input", driftCancel); // any manual nudge takes over
+presetsEl.addEventListener("click", (e) => {
+  const b = e.target;
+  if (b.tagName === "BUTTON" && !b.classList.contains("op")) driftCancel();
+});
+
 // ---- resize + loop --------------------------------------------------------------------
 function onResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -445,6 +564,7 @@ renderer.init().then(async () => {
   renderer.setAnimationLoop(() => {
     const dt = Math.min(0.05, clock.getDelta());
 
+    if (drift.active) driftUpdate(dt);
     if (evolveSpeed.value > 0) {
       uEvolve.value += dt * evolveSpeed.value;
       bakeDirty = true; // per-frame re-bake: the churn experiment
@@ -457,7 +577,9 @@ renderer.init().then(async () => {
     frames++;
     fpsClock += dt;
     if (fpsClock >= 1) {
-      fpsEl.textContent = `${Math.round(frames / fpsClock)} fps`;
+      const fps = Math.round(frames / fpsClock);
+      fpsEl.textContent = `${fps} fps · ${RES_TIERS[resTier]}×`;
+      adaptResolution(fps);
       frames = 0;
       fpsClock = 0;
     }
@@ -466,7 +588,7 @@ renderer.init().then(async () => {
       orbit.M += (dt * Math.PI * 2) / orbit.period;
       orbitBlend = Math.min(1, orbitBlend + dt / 1.2); // ease in over ~1.2s, no hard snap
       camera.position.lerp(orbitPosition(), orbitBlend);
-      camera.lookAt(orbit.center);
+      controls.target.lerp(orbitLookTarget(), orbitBlend);
     }
     controls.update();
     renderer.render(scene, camera);
