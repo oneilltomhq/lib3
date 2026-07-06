@@ -63,7 +63,10 @@ const conductor = new Conductor({ bpm: 116, swing: 0.06 });
 const rack = new Rack({ storage: localStorageAdapter("flubberComputeRack") });
 
 const ctrl = {
-  wall: 1, // 1: follows camera · 0.5: frozen · 0: hidden (refraction works either way)
+  // wall: the synth backdrop. 0.5 (default): a fixed stage flat — orbit past
+  // its edge and there's honest void behind. 1: follows the camera (always a
+  // full frame, never any void). 0: hidden. Refraction is scene-true in all.
+  wall: 0.5,
   kick: 5, // radial force per accented hit (decays exponentially)
 };
 let pump = 0;

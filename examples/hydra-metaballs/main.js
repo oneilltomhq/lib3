@@ -37,7 +37,10 @@ const rack = new Rack({ storage: localStorageAdapter("hydraMetaballsRack") });
 // live control state — what the rack addresses; hydra reads it through
 // dynamic args (t => ...), so knob moves hit the synth without recompiles
 const ctrl = {
-  wall: 1, // 1: follows camera · 0.5: frozen · 0: hidden (refraction works either way)
+  // wall: the synth backdrop. 0.5 (default): a fixed stage flat — orbit past
+  // its edge and there's honest void behind. 1: follows the camera (always a
+  // full frame, never any void). 0: hidden. Refraction is scene-true in all.
+  wall: 0.5,
   flow: 9, // backdrop osc frequency
   melt: 0.045, // feedback modulate amount (the infinite-zoom pull)
   hueDrift: 0.0012, // colorama rate — it accumulates through the feedback, keep tiny

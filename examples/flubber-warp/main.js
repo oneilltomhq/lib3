@@ -37,8 +37,10 @@ const conductor = new Conductor({ bpm: 116, swing: 0.06 });
 const rack = new Rack({ storage: localStorageAdapter("flubberWarpRack") });
 
 const ctrl = {
-  wall: 1, // 1: backdrop follows the camera · 0.5: frozen in place · 0: hidden.
-  // the glass refracts whatever is really behind it — wall, void, anything
+  // wall: the synth backdrop. 0.5 (default): a fixed stage flat — orbit past
+  // its edge and there's honest void behind. 1: follows the camera (always a
+  // full frame, never any void). 0: hidden. Refraction is scene-true in all.
+  wall: 0.5,
   warp: 0.3, // resting domain-warp amount (world units of bend)
   warpKick: 0.5, // extra warp per accented hit (spring, settles back)
   chop: 0.045, // surface displacement amplitude
