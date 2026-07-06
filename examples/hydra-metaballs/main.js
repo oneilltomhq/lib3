@@ -37,7 +37,7 @@ const rack = new Rack({ storage: localStorageAdapter("hydraMetaballsRack") });
 // live control state — what the rack addresses; hydra reads it through
 // dynamic args (t => ...), so knob moves hit the synth without recompiles
 const ctrl = {
-  wall: 1, // 1: backdrop follows the camera; 0: frozen (refraction works either way)
+  wall: 1, // 1: follows camera · 0.5: frozen · 0: hidden (refraction works either way)
   flow: 9, // backdrop osc frequency
   melt: 0.045, // feedback modulate amount (the infinite-zoom pull)
   hueDrift: 0.0012, // colorama rate — it accumulates through the feedback, keep tiny
@@ -147,7 +147,8 @@ scene.add(metaballs.mesh);
 // ---- the jack panel ---------------------------------------------------------------
 rack.add("/room/bpm", bindKey(conductor, "bpm"), { min: 60, max: 160, unit: "bpm" });
 rack.add("/room/swing", bindKey(conductor, "swing"), { min: 0, max: 0.6 });
-rack.add("/room/wall", bindKey(ctrl, "wall"), { min: 0, max: 1, label: "wall follows camera" });
+rack.add("/room/wall", bindKey(ctrl, "wall"),
+  { min: 0, max: 1, label: "wall: 0 hidden · 0.5 frozen · 1 follows" });
 rack.add("/synth/flow", bindKey(ctrl, "flow"), { min: 2, max: 40 });
 rack.add("/synth/melt", bindKey(ctrl, "melt"), { min: 0, max: 0.12 });
 // hue accumulates through the feedback loop — past ~0.008 it runs away to
@@ -213,7 +214,8 @@ renderer.setAnimationLoop(() => {
   synth.update(elapsed); // hydra passes (offscreen; also ticks the dynamic args)
   metaballs.update();
   controls.update();
-  if (ctrl.wall >= 0.5) placeBackdrop();
+  backdrop.visible = ctrl.wall >= 0.25;
+  if (ctrl.wall >= 0.75) placeBackdrop();
 
   // grab pass: everything but the glass, into the refraction source
   const glassVisible = metaballs.mesh.visible;
