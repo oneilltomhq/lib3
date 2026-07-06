@@ -33,11 +33,13 @@ import {
   mx_noise_vec3,
   normalize,
   positionWorld,
+  screenSize,
   screenUV,
   texture,
   texture3D,
   textureStore,
   uniform,
+  vec2,
   vec3,
   vec4,
 } from "three/tsl";
@@ -92,19 +94,21 @@ controls.enableDamping = true;
 controls.minDistance = 2.4;
 controls.maxDistance = 6;
 
-const BACKDROP_Z = -2.4;
+// backdrop: a camera-facing wall re-placed every frame a fixed depth beyond
+// the origin — orbiting can never look past its edge into void
+const BACKDROP_DEPTH = 2.4;
 const backdropMat = new THREE.MeshBasicNodeMaterial();
 backdropMat.colorNode = texture(o0.display.texture);
 const backdrop = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), backdropMat);
-backdrop.position.z = BACKDROP_Z;
 scene.add(backdrop);
-function sizeBackdrop() {
-  // sized for the WORST reachable pose (maxDistance, wide orbit), not the start
-  const dist = controls.maxDistance - BACKDROP_Z;
-  const h = 2 * dist * Math.tan((camera.fov * Math.PI) / 360) * 2.2;
-  backdrop.scale.set(Math.max(h * camera.aspect, h * 1.78), h, 1);
+function placeBackdrop() {
+  const camDist = camera.position.length();
+  const span = camDist + BACKDROP_DEPTH;
+  backdrop.position.copy(camera.position).multiplyScalar(-BACKDROP_DEPTH / camDist);
+  backdrop.quaternion.copy(camera.quaternion);
+  const h = 2 * span * Math.tan((camera.fov * Math.PI) / 360) * 1.15;
+  backdrop.scale.set(h * camera.aspect, h, 1);
 }
-sizeBackdrop();
 
 // ---- pass 1: particle sim -----------------------------------------------------------
 const N = 128;
@@ -194,7 +198,16 @@ const uRimStrength = uniform(0.4);
 const MARCH_STEPS = 80;
 
 const densityTex = texture3D(volume, null, 0);
-const sceneTex = texture(o0.display.texture);
+// grab pass: the glass refracts what is ACTUALLY rendered behind it — each
+// frame the scene minus the glass is drawn here, sampled at screenUV, so
+// orbiting can't shear the blob interior off the backdrop
+const grabRT = new THREE.RenderTarget(1, 1);
+function sizeGrab() {
+  const dpr = renderer.getPixelRatio();
+  grabRT.setSize(window.innerWidth * dpr, window.innerHeight * dpr);
+}
+sizeGrab();
+const sceneTex = texture(grabRT.texture);
 const rimTex = texture(o1.display.texture);
 
 const densityAt = (p) => densityTex.sample(p.div(2 * BOUND).add(0.5)).r;
@@ -249,7 +262,11 @@ marchMat.colorNode = Fn(() => {
 
   // same glass read as RaymarchedMetaballs
   const fres = rd.dot(n).abs().oneMinus().pow(2);
-  const refracted = sceneTex.sample(screenUV.add(n.xy.mul(uRefract.negate())));
+  // aspect-corrected offset: equal normals shift equal PIXELS, not UV
+  const refractOffset = n.xy
+    .mul(vec2(screenSize.y.div(screenSize.x), 1))
+    .mul(uRefract.negate());
+  const refracted = sceneTex.sample(screenUV.add(refractOffset));
   const rim = rimTex.sample(screenUV).mul(fres.mul(uRimStrength));
   return refracted.mul(fres.mul(uFresnelStrength).add(uFresnelBase)).add(rim);
 })();
@@ -286,13 +303,16 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  sizeBackdrop();
+  sizeGrab();
 });
 
 // ---- loop -------------------------------------------------------------------------
 // one clamped dt drives hydra, sim and conductor — hidden tabs can't desync them
 let elapsed = 0;
 const clock = new THREE.Clock();
+const fpsEl = document.getElementById("fps");
+let fpsFrames = 0;
+let fpsStamp = 0;
 renderer.setAnimationLoop(() => {
   const dt = Math.min(0.1, clock.getDelta());
   elapsed += dt;
@@ -312,6 +332,22 @@ renderer.setAnimationLoop(() => {
 
   synth.update(elapsed);
   controls.update();
+  placeBackdrop();
+
+  // grab pass: everything but the glass, into the refraction source
+  marchMesh.visible = false;
+  renderer.setRenderTarget(grabRT);
+  renderer.render(scene, camera);
+  renderer.setRenderTarget(null);
+  marchMesh.visible = true;
+
   renderer.render(scene, camera);
   window.__ready = true;
+
+  fpsFrames++;
+  if (elapsed - fpsStamp >= 0.5) {
+    fpsEl.textContent = `${(fpsFrames / (elapsed - fpsStamp)).toFixed(0)} fps`;
+    fpsFrames = 0;
+    fpsStamp = elapsed;
+  }
 });
