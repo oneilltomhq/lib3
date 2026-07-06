@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      opentype.js:
-        specifier: ^2.0.0
-        version: 2.0.0
       three:
         specifier: ^0.184.0
         version: 0.184.0
@@ -21,6 +18,9 @@ importers:
       fast-glob:
         specifier: ^3.3.3
         version: 3.3.3
+      opentype.js:
+        specifier: ^2.0.0
+        version: 2.0.0
       playwright-core:
         specifier: ^1.61.1
         version: 1.61.1
