@@ -26,7 +26,7 @@
         position: fixed; inset: 0;
         -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
         -webkit-mask-size: 100% 100%; mask-size: 100% 100%;
-        will-change: -webkit-mask-image, mask-image;
+        will-change: -webkit-mask-image, mask-image, filter;
       }
       .layer iframe {
         /* overscanned + translated per frame: each portal's content glides
@@ -105,6 +105,10 @@
       const ENTRIES = __EXAMPLES_JSON__;
 
       // The three stories. Each gets a cell, a color, a slice of the field.
+      // `filter` (optional): a per-portal CSS filter baked in front of the
+      // rest-state dimming below — the example itself is untouched.
+      // flubber-compute's backdrop is brash fullscreen, so it gets an extra
+      // knock even when awake.
       const FEATURED = [
         {
           href: "examples/knot-morph-lab/",
@@ -117,6 +121,7 @@
           name: "flubber compute",
           story: "128 particles → density field → glass",
           color: "#ff9e5e",
+          filter: "saturate(0.72) brightness(0.72) contrast(0.96)",
         },
         {
           href: "examples/anisotropic-fbm-volume/",
@@ -125,6 +130,23 @@
           color: "#a78bfa",
         },
       ];
+
+      // The presentation cut: the list shows these, featured pinned on top.
+      // The filter box still searches ALL of ENTRIES (type to reach the rest).
+      // null → show everything.
+      const CURATED = new Set([
+        "examples/knot-morph-lab/",
+        "examples/flubber-compute/",
+        "examples/anisotropic-fbm-volume/",
+        "examples/flubber-arc/",
+        "examples/laser-kick/",
+        "examples/thunder-lightning-clouds/",
+        "examples/raymarch-head/",
+        "examples/lissajous-journey/",
+        "examples/hydra-metaballs/",
+        "examples/sdf-text-vector/",
+        "examples/nimbus/",
+      ]);
 
       // ---- noise core (dynamics-notebook rung 4: value noise → fbm → curl) ----
       function hash3(ix, iy, iz) {
@@ -197,8 +219,9 @@
         const a = (i / FEATURED.length) * Math.PI * 2 - Math.PI / 2;
         return {
           ...f,
-          layer, label, mcv,
+          layer, frame, label, mcv,
           mctx: mcv.getContext("2d"),
+          ox: 0, oy: 0, // eased parallax offset of the iframe content, px
           img: null, // ImageData, alloc'd on resize
           path: null, // cached boundary contour (Path2D)
           x: W / 2 + Math.cos(a) * W * 0.3,
@@ -218,11 +241,18 @@
       const listEl = document.getElementById("list");
       const countEl = document.getElementById("count");
       const featuredHrefs = new Map(FEATURED.map((f) => [f.href, f]));
+      // featured first, then the rest — so the pinned stories head the list
+      const ordered = [...ENTRIES].sort((a, b) => {
+        const fa = featuredHrefs.has(a.href), fb = featuredHrefs.has(b.href);
+        return fa === fb ? 0 : fa ? -1 : 1;
+      });
       function renderList(q = "") {
         listEl.innerHTML = "";
         let n = 0;
-        for (const { href, title } of ENTRIES) {
-          if (q && !title.toLowerCase().includes(q)) continue;
+        for (const { href, title } of ordered) {
+          // no query → presentation cut (CURATED); typing searches everything
+          if (q) { if (!title.toLowerCase().includes(q)) continue; }
+          else if (CURATED && !CURATED.has(href)) continue;
           const a = document.createElement("a");
           a.href = "/" + href;
           a.textContent = title;
@@ -231,7 +261,9 @@
           listEl.appendChild(a);
           n++;
         }
-        countEl.textContent = `${n} / ${ENTRIES.length} examples`;
+        countEl.textContent = q
+          ? `${n} / ${ENTRIES.length} examples`
+          : `${n} featured · type to search all ${ENTRIES.length}`;
       }
       renderList();
       document.getElementById("filter").addEventListener("input", (e) => {
@@ -246,8 +278,18 @@
       const MSCALE = 8; // mask grid pitch, px — upscale smooths the frontier
       const WARP_A = 130; // domain-warp amplitude, px — how deep the lobes buckle
       const WARP_SC = 0.0028; // warp feature size (~350px lobes)
-      const GAP = 4; // half-width of the dark seam between cells, px
-      const FEATHER = 16; // margin over which a cell fades in from the seam
+      const GAP = 2; // half-width of the dark seam between cells, px
+      const FEATHER = 28; // margin over which a cell fades in from the seam
+      // parallax: each iframe is overscanned and glides toward its seed so the
+      // hero object stays exposed — but only PARALLAX of the way, so the mask
+      // reads as a window over a deeper world instead of a flat sticker.
+      const PARALLAX = 0.34; // 0 = content pinned to screen, 1 = pinned to cell
+      const OVERSCAN = 0.5; // extra iframe size (fraction of viewport) for slack
+      const PAR_EASE = 3.0; // how fast the offset chases its target, 1/s
+      // rest state: cells sleep dim and grey — embers behind glass — so the
+      // page has one voice at a time; the hovered cell wakes to full color
+      const REST_SAT = 0.35;
+      const REST_BRIGHT = 0.45;
       const BREATH = 0.16; // weight swing as a fraction of the mean seed spacing
       const wrap = (v, m) => ((v % m) + m) % m;
       // shortest signed delta on the torus
@@ -273,12 +315,19 @@
         warpX = new Float32Array(gw * gh);
         warpY = new Float32Array(gw * gh);
         warpFresh = false;
+        const fw = W * (1 + OVERSCAN), fh = H * (1 + OVERSCAN);
         for (const p of portals) {
           p.mcv.width = gw; p.mcv.height = gh;
           p.img = p.mctx.createImageData(gw, gh);
           const d = p.img.data;
           for (let i = 0; i < d.length; i += 4) { d[i] = d[i + 1] = d[i + 2] = 255; }
           p.path = null;
+          // overscanned + centered; per-frame transform slides it (single
+          // source of truth for motion is the parallax offset below)
+          p.frame.style.width = fw + "px";
+          p.frame.style.height = fh + "px";
+          p.frame.style.left = -OVERSCAN * W / 2 + "px";
+          p.frame.style.top = -OVERSCAN * H / 2 + "px";
         }
       }
       sizeAll();
@@ -300,6 +349,9 @@
 
       // exact same assignment math, at one point — for hover and click
       function portalAt(x, y) {
+        // offscreen pointer (parked at -1e4, or gone) would wrap onto the
+        // torus and phantom-hover a cell — treat it as hovering nothing
+        if (x < 0 || y < 0 || x >= W || y >= H) return null;
         const wx = (fbm(x * WARP_SC, y * WARP_SC, tNow * 0.5 + 11.3, 2) - 0.5) * 2 * WARP_A;
         const wy = (fbm(x * WARP_SC + 51.7, y * WARP_SC, tNow * 0.5 + 71.9, 2) - 0.5) * 2 * WARP_A;
         const qx = wrap(x + wx, W), qy = wrap(y + wy, H);
@@ -434,14 +486,29 @@
         ringsCtx.clearRect(0, 0, W, H);
         const hoverP = portalAt(mx, my);
         document.body.style.cursor = hoverP ? "pointer" : "";
+        const k = Math.min(1, dt * PAR_EASE);
         for (const p of portals) {
           p.hover += ((hoverP === p ? 1 : 0) - p.hover) * Math.min(1, dt * 8);
+          // sleep/wake: lerp the dim toward full as hover rises; per-portal
+          // base filter (flubber's knock-down) composes in front
+          const sat = REST_SAT + (1 - REST_SAT) * p.hover;
+          const bri = REST_BRIGHT + (1 - REST_BRIGHT) * p.hover;
+          p.layer.style.filter = (p.filter ? p.filter + " " : "") +
+            `saturate(${sat.toFixed(3)}) brightness(${bri.toFixed(3)})`;
           if (p.path) {
             ringsCtx.strokeStyle = p.color;
             ringsCtx.globalAlpha = 0.35 + p.hover * 0.4;
             ringsCtx.lineWidth = 1;
             ringsCtx.stroke(p.path);
           }
+          // glide the content toward its seed (shortest way on the torus, so a
+          // seed pacman-ing across an edge eases back instead of snapping)
+          const tx = PARALLAX * tdelta(W / 2, p.x, W);
+          const ty = PARALLAX * tdelta(H / 2, p.y, H);
+          p.ox += (tx - p.ox) * k;
+          p.oy += (ty - p.oy) * k;
+          p.frame.style.transform =
+            `translate3d(${p.ox.toFixed(1)}px, ${p.oy.toFixed(1)}px, 0)`;
           p.label.style.left = Math.max(100, Math.min(W - 100, p.x)) + "px";
           p.label.style.top = Math.max(40, Math.min(H - 40, p.y)) + "px";
         }
