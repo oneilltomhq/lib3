@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flubber (arc) — lightning permeating the liquid</title>
+  <script>
+    if (self !== top) document.documentElement.classList.add("embed");
+  </script>
+  <script type="module" src="./main.js"></script>
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden;
+      font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+    #bolts { position: fixed; inset: 0; z-index: 5; pointer-events: none; }
+    #hud {
+      position: fixed; top: 12px; left: 14px; color: #9aa3b5; z-index: 10;
+      pointer-events: none; text-shadow: 0 1px 3px #000c;
+    }
+    #hud b { color: #8fd0ff; font-weight: 600; letter-spacing: .08em; }
+    #hud .dim { color: #5a6478; }
+    #fail {
+      display: none; position: fixed; inset: 0; place-content: center;
+      color: #9aa3b5; text-align: center; padding: 2rem;
+    }
+    html.embed #hud { display: none; }
+  </style>
+</head>
+<body>
+  <canvas id="view"></canvas>
+  <canvas id="bolts"></canvas>
+  <div id="hud">
+    <b>FLUBBER / ARC</b><br>
+    <span class="dim">the liquid is the conductor — electricity discharges THROUGH
+    it, arcs jumping globule to globule, lighting the mass from within<br>
+    perpetual crackle + surges · click to surge · d toggles · drag to orbit</span><br>
+    <span id="fps" class="dim"></span>
+  </div>
+  <div id="fail">WebGPU unavailable — this demo needs a WebGPU-capable browser.</div>
+</body>
+</html>
