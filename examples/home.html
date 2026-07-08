@@ -29,9 +29,14 @@
         will-change: -webkit-mask-image, mask-image;
       }
       .layer iframe {
-        width: 100%; height: 100%; border: 0; display: block;
+        /* overscanned + translated per frame: each portal's content glides
+           toward its cell so the hero object stays exposed — but only at
+           PARALLAX speed, so the mask reads as a window over a deeper world.
+           Sizing/position set from JS (single source: PARALLAX). */
+        position: absolute; border: 0; display: block;
         pointer-events: none; /* the index owns the pointer; click = travel */
         background: #000;
+        will-change: transform;
       }
 
       #rings { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
