@@ -1,16 +1,11 @@
 // Flubber, route B: no spheres anywhere. The shape is EMERGENT.
 //
-// Three GPU passes per frame:
-//
-//   sim    (compute, per particle) — 128 particles advected by vec3 noise,
-//          spring-pulled to the origin, swirled, kicked radially by the
-//          conductor. Positions/velocities persist in storage buffers.
-//   splat  (compute, per voxel)    — each 64³ voxel sums a compact-support
-//          kernel over all particles into a Storage3DTexture. Density, not
-//          geometry: no primitive survives to be recognized.
-//   march  (fragment)              — fixed-step march through the box,
-//          isosurface where density crosses uIso, gradient normal, then the
-//          same glass read as the metaballs (refract backdrop, fresnel, rim).
+// The three GPU passes (sim → splat → march) now live in the library as
+// FlubberField (../../src/flubber.js). This example is just the MUSICAL wiring:
+// a hydra backdrop, a conductor, and a stack of drivers that push the mass —
+// noise advection, cohesion, swirl, and a conductor-spiked radial kick. The
+// site (oneilltom.com) drives the same substrate with gravity wells instead;
+// neither copies the other.
 //
 // Why compute instead of warping the sphere field (../flubber-warp): the
 // expensive stuff (noise, kernels) is paid per PARTICLE and per VOXEL, once —
@@ -19,34 +14,18 @@
 // re-merge, which a smooth-min of spheres never does.
 
 import * as THREE from "three/webgpu";
-import {
-  Break,
-  cameraPosition,
-  clamp,
-  Discard,
-  float,
-  Fn,
-  If,
-  instancedArray,
-  instanceIndex,
-  Loop,
-  mx_noise_vec3,
-  normalize,
-  positionWorld,
-  screenSize,
-  screenUV,
-  texture,
-  texture3D,
-  textureStore,
-  uniform,
-  vec2,
-  vec3,
-  vec4,
-} from "three/tsl";
+import { texture } from "three/tsl";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { HydraSynth } from "../../src/hydra/index.js";
 import { Conductor, Spring } from "../../src/conductor.js";
 import { Rack, bindKey, bindUniform, connectRackBridge, localStorageAdapter } from "../../src/rack.js";
+import {
+  FlubberField,
+  noiseFlowDriver,
+  cohesionDriver,
+  swirlDriver,
+  kickDriver,
+} from "../../src/flubber.js";
 
 const canvas = document.getElementById("view");
 if (!navigator.gpu) {
@@ -70,7 +49,6 @@ const ctrl = {
   kick: 5, // radial force per accented hit (decays exponentially)
 };
 let pump = 0;
-let kickEnv = 0;
 
 // ---- hydra backdrop + rim ----------------------------------------------------------
 const synth = new HydraSynth({ renderer, width: 1024, height: 576, outputs: 2, display: true });
@@ -115,192 +93,73 @@ function placeBackdrop() {
 }
 placeBackdrop();
 
-// ---- pass 1: particle sim -----------------------------------------------------------
-const N = 128;
-const BOUND = 1.4; // half-extent of the density box (world units)
-
-const initPositions = new Float32Array(N * 3);
-for (let i = 0; i < N; i++) {
-  // random-ish ball, radius ~0.7
-  const r = 0.7 * Math.cbrt(Math.random());
-  const a = Math.random() * Math.PI * 2;
-  const z = Math.random() * 2 - 1;
-  const s = Math.sqrt(1 - z * z);
-  initPositions[i * 3 + 0] = r * s * Math.cos(a);
-  initPositions[i * 3 + 1] = r * z;
-  initPositions[i * 3 + 2] = r * s * Math.sin(a);
-}
-const pPos = instancedArray(initPositions, "vec3");
-const pVel = instancedArray(N, "vec3");
-
-const uDt = uniform(0);
-const uT = uniform(0);
-const uFlowFreq = uniform(1.9);
-const uFlowAmt = uniform(5.2); // noise advection force — must WIN against cohesion or the mass stays a bean
-const uCohesion = uniform(1.4); // spring to origin — what re-merges the mass
-const uSwirl = uniform(0.9); // tangential force around y
-const uKick = uniform(0); // radial force, spiked by the conductor
-const uDamp = uniform(1.5);
-
-const simParticles = Fn(() => {
-  const pos = pPos.element(instanceIndex);
-  const vel = pVel.element(instanceIndex);
-
-  const flow = mx_noise_vec3(
-    pos.mul(uFlowFreq).add(vec3(0, uT.mul(0.25), uT.mul(0.11)))
-  ).mul(uFlowAmt);
-  // cohesion stiffens quadratically with distance — noise can stretch the
-  // mass, never fling a particle out of the box
-  const stiffen = pos.dot(pos).mul(3).add(1);
-  const pull = pos.mul(uCohesion.mul(stiffen).negate());
-  const swirlF = vec3(pos.z.negate(), 0, pos.x).mul(uSwirl);
-  const out = normalize(pos.add(vec3(0.013, 0.021, 0.017))).mul(uKick);
-
-  vel.addAssign(flow.add(pull).add(swirlF).add(out).mul(uDt));
-  vel.mulAssign(clamp(float(1).sub(uDamp.mul(uDt)), 0, 1));
-  pos.addAssign(vel.mul(uDt));
-})().compute(N);
-
-// ---- pass 2: splat density into a 3D texture ----------------------------------------
-const GRID = 64;
-const volume = new THREE.Storage3DTexture(GRID, GRID, GRID);
-volume.generateMipmaps = false;
-volume.magFilter = THREE.LinearFilter;
-volume.minFilter = THREE.LinearFilter;
-volume.name = "flubberDensity";
-
-const uBlobR = uniform(0.26); // particle influence radius — small enough that clusters read, not a hull
-
-const splatDensity = Fn(() => {
-  const id = instanceIndex;
-  const x = id.mod(GRID);
-  const y = id.div(GRID).mod(GRID);
-  const z = id.div(GRID * GRID);
-
-  const wp = vec3(x, y, z)
-    .add(0.5)
-    .div(GRID)
-    .sub(0.5)
-    .mul(2 * BOUND);
-
-  const r2max = uBlobR.mul(uBlobR);
-  const dens = float(0).toVar();
-  Loop(N, ({ i }) => {
-    const dp = wp.sub(pPos.element(i));
-    const w = clamp(float(1).sub(dp.dot(dp).div(r2max)), 0, 1);
-    dens.addAssign(w.mul(w).mul(w)); // compact-support cubic falloff
-  });
-
-  textureStore(volume, vec3(x, y, z), vec4(dens, 0, 0, 1));
-})().compute(GRID * GRID * GRID);
-
-// ---- pass 3: march the isosurface ---------------------------------------------------
-const uIso = uniform(0.6);
-const uRefract = uniform(0.3);
-const uFresnelStrength = uniform(0.85);
-const uFresnelBase = uniform(0.5);
-const uRimStrength = uniform(0.4);
-const MARCH_STEPS = 80;
-
-const densityTex = texture3D(volume, null, 0);
-// grab pass: the glass refracts what is ACTUALLY rendered behind it — each
-// frame the scene minus the glass is drawn here, sampled at screenUV, so
-// orbiting can't shear the blob interior off the backdrop
+// ---- refraction source: grab pass ---------------------------------------------------
+// the glass refracts what is ACTUALLY rendered behind it — each frame the scene
+// minus the glass is drawn here, sampled at screenUV, so orbiting can't shear
+// the blob interior off the backdrop
 const grabRT = new THREE.RenderTarget(1, 1);
 function sizeGrab() {
   const dpr = renderer.getPixelRatio();
   grabRT.setSize(window.innerWidth * dpr, window.innerHeight * dpr);
 }
 sizeGrab();
-const sceneTex = texture(grabRT.texture);
-const rimTex = texture(o1.display.texture);
 
-const densityAt = (p) => densityTex.sample(p.div(2 * BOUND).add(0.5)).r;
+// ---- the flubber substrate (sim → splat → march) lives in the library ---------------
+// drivers push the mass: noise advection (must WIN against cohesion or the mass
+// stays a bean), a quadratically-stiffening spring back to the origin, a swirl
+// around y (spring-smoothed by the conductor), and a radial kick per accent.
+const N = 128;
+const BOUND = 1.4; // half-extent of the density box (world units)
 
-const marchMat = new THREE.MeshBasicNodeMaterial();
-marchMat.transparent = true;
-marchMat.depthWrite = false;
-marchMat.side = THREE.BackSide; // back faces: rays exist even at close orbit
+const noise = noiseFlowDriver({ freq: 1.9, amt: 5.2 });
+const cohesion = cohesionDriver({ strength: 1.4, stiffen: 3 }); // spring to origin (box centre)
+const swirlDrv = swirlDriver({ strength: 0.9 });
+const kick = kickDriver({ decay: 7 });
 
-marchMat.colorNode = Fn(() => {
-  const ro = cameraPosition;
-  const rd = normalize(positionWorld.sub(cameraPosition));
-
-  // slab intersection with the density box
-  const inv = vec3(1).div(rd);
-  const tA = vec3(-BOUND).sub(ro).mul(inv);
-  const tB = vec3(BOUND).sub(ro).mul(inv);
-  const tLo = tA.min(tB);
-  const tHi = tA.max(tB);
-  const tNear = tLo.x.max(tLo.y).max(tLo.z).max(0);
-  const tFar = tHi.x.min(tHi.y).min(tHi.z);
-  If(tFar.lessThanEqual(tNear), () => Discard());
-
-  const stepLen = tFar.sub(tNear).div(MARCH_STEPS);
-  const t = tNear.toVar();
-  const prev = float(0).toVar();
-  const tHit = float(-1).toVar();
-
-  Loop(MARCH_STEPS, () => {
-    const d = densityAt(ro.add(rd.mul(t)));
-    If(d.greaterThanEqual(uIso), () => {
-      // linear refine between the last two samples
-      const f = uIso.sub(prev).div(d.sub(prev).max(1e-4));
-      tHit.assign(t.sub(stepLen.mul(float(1).sub(f))));
-      Break();
-    });
-    prev.assign(d);
-    t.addAssign(stepLen);
-  });
-
-  If(tHit.lessThan(0), () => Discard());
-
-  const p = ro.add(rd.mul(tHit));
-  const e = (2 * BOUND) / GRID; // one voxel
-  const n = normalize(
-    vec3(
-      densityAt(p.sub(vec3(e, 0, 0))).sub(densityAt(p.add(vec3(e, 0, 0)))),
-      densityAt(p.sub(vec3(0, e, 0))).sub(densityAt(p.add(vec3(0, e, 0)))),
-      densityAt(p.sub(vec3(0, 0, e))).sub(densityAt(p.add(vec3(0, 0, e))))
-    )
-  );
-
-  // same glass read as RaymarchedMetaballs
-  const fres = rd.dot(n).abs().oneMinus().pow(2);
-  // aspect-corrected offset: equal normals shift equal PIXELS, not UV
-  const refractOffset = n.xy
-    .mul(vec2(screenSize.y.div(screenSize.x), 1))
-    .mul(uRefract.negate());
-  const refracted = sceneTex.sample(screenUV.add(refractOffset));
-  const rim = rimTex.sample(screenUV).mul(fres.mul(uRimStrength));
-  return refracted.mul(fres.mul(uFresnelStrength).add(uFresnelBase)).add(rim);
-})();
-
-const marchMesh = new THREE.Mesh(
-  new THREE.BoxGeometry(2 * BOUND, 2 * BOUND, 2 * BOUND), marchMat);
-marchMesh.frustumCulled = false;
+const flubber = new FlubberField({
+  renderer,
+  camera,
+  drivers: [noise, cohesion, swirlDrv, kick],
+  sceneTexture: grabRT.texture,
+  rimTexture: o1.display.texture,
+  count: N,
+  grid: 64,
+  center: new THREE.Vector3(0, 0, 0),
+  half: new THREE.Vector3(BOUND, BOUND, BOUND),
+  radius: 0.26, // uniform influence radius — small enough that clusters read, not a hull
+  damp: 1.5,
+  speedCap: 1e6, // effectively uncapped, as the original example was
+  iso: 0.6,
+  refract: 0.3,
+  fresnelStrength: 0.85,
+  fresnelBase: 0.5,
+  rimStrength: 0.4,
+  marchSteps: 80,
+});
+const marchMesh = flubber.mesh; // the loop toggles its visibility for the grab pass
 scene.add(marchMesh);
 
 // ---- conductor → physics ------------------------------------------------------------
 const swirl = new Spring({ value: 0.9, target: 0.9, freq: 0.5, zeta: 1.0 });
 conductor.voice({
   steps: 8, hits: 3,
-  onHit({ accent }) { kickEnv += ctrl.kick * accent; },
+  onHit({ accent }) { kick.add(ctrl.kick * accent); },
 });
 
 // ---- jack panel ---------------------------------------------------------------------
 rack.add("/room/bpm", bindKey(conductor, "bpm"), { min: 60, max: 160, unit: "bpm" });
 rack.add("/room/wall", bindKey(ctrl, "wall"),
   { min: 0, max: 1, label: "wall: 0 hidden · 0.5 frozen · 1 follows" });
-rack.add("/flub/flow", bindUniform(uFlowAmt), { min: 0, max: 8 });
-rack.add("/flub/flowFreq", bindUniform(uFlowFreq), { min: 0.4, max: 4 });
-rack.add("/flub/cohesion", bindUniform(uCohesion), { min: 0.5, max: 6 });
+rack.add("/flub/flow", bindUniform(noise.uniforms.uAmt), { min: 0, max: 8 });
+rack.add("/flub/flowFreq", bindUniform(noise.uniforms.uFreq), { min: 0.4, max: 4 });
+rack.add("/flub/cohesion", bindUniform(cohesion.uniforms.uStr), { min: 0.5, max: 6 });
 rack.add("/flub/swirl", bindKey(swirl, "target"), { min: 0, max: 3 });
 rack.add("/flub/kick", bindKey(ctrl, "kick"), { min: 0, max: 12 });
-rack.add("/flub/blobR", bindUniform(uBlobR), { min: 0.18, max: 0.5 });
-rack.add("/flub/iso", bindUniform(uIso), { min: 0.3, max: 1.6 });
-rack.add("/balls/refract", bindUniform(uRefract), { min: 0, max: 0.6 });
-rack.add("/balls/rim", bindUniform(uRimStrength), { min: 0, max: 1 });
+rack.add("/flub/blobR", bindUniform(flubber.u.uRadiusScale),
+  { min: 0.7, max: 1.9, label: "blobR: scale on baked kernel radius" });
+rack.add("/flub/iso", bindUniform(flubber.u.uIso), { min: 0.3, max: 1.6 });
+rack.add("/balls/refract", bindUniform(flubber.u.uRefract), { min: 0, max: 0.6 });
+rack.add("/balls/rim", bindUniform(flubber.u.uRimStrength), { min: 0, max: 1 });
 
 if (new URLSearchParams(location.search).has("bridge")) connectRackBridge(rack);
 window.rack = rack;
@@ -328,14 +187,10 @@ renderer.setAnimationLoop(() => {
   rack.update(dt);
   pump = conductor.pump(5);
 
-  kickEnv *= Math.exp(-7 * dt);
-  uKick.value = kickEnv;
-  uSwirl.value = swirl.update(dt);
-  uDt.value = dt;
-  uT.value = elapsed;
-
-  renderer.compute(simParticles);
-  renderer.compute(splatDensity);
+  // conductor-smoothed swirl → the swirl driver's live strength
+  swirlDrv.uniforms.uStr.value = swirl.update(dt);
+  // one call: decays the kick envelope, runs sim + splat compute passes
+  flubber.update(dt, elapsed);
 
   synth.update(elapsed);
   controls.update();

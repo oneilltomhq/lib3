@@ -54,6 +54,16 @@ export {
   HydraSynth,
 } from "./hydra/index.js";
 
+export {
+  FlubberField,
+  wellDriver,
+  noiseFlowDriver,
+  cohesionDriver,
+  swirlDriver,
+  kickDriver,
+  burstDriver,
+} from "./flubber.js";
+
 export { SmokeVolume } from "./fluidSim.js";
 export { VolumeSmokeNodeMaterial } from "./smokeMaterial.js";
 export { ComputeMipAwareBlueNoise } from "./blueNoise.js";

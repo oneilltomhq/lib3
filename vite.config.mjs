@@ -130,6 +130,7 @@ export default defineConfig(({ mode }) => {
             thunder: resolve(__dirname, "src/thunder.js"),
             nimbus: resolve(__dirname, "src/nimbus/index.js"),
             metaballs: resolve(__dirname, "src/metaballs.js"),
+            flubber: resolve(__dirname, "src/flubber.js"),
             lissajous: resolve(__dirname, "src/lissajous.js"),
             journey: resolve(__dirname, "src/journey.js"),
             hydra: resolve(__dirname, "src/hydra/index.js"),
