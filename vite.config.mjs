@@ -135,6 +135,7 @@ export default defineConfig(({ mode }) => {
             journey: resolve(__dirname, "src/journey.js"),
             hydra: resolve(__dirname, "src/hydra/index.js"),
             rack: resolve(__dirname, "src/rack.js"),
+            dsp: resolve(__dirname, "src/dsp.js"),
             sdf: resolve(__dirname, "src/sdf/index.js"),
             sdfText: resolve(__dirname, "src/sdf-text/index.js"),
           },

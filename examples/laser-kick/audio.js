@@ -3,97 +3,16 @@
 // euclidean 16-step clock, fed through a convolution reverb whose impulse
 // response is rendered live by an 8-line Hadamard feedback delay network.
 //
-// The kick voice is the phasor kick from agentic-faust-web's techno-bed.dsp
-// (sine with an exponential pitch drop under an exponential amplitude decay),
-// ported from Faust to a rendered AudioBuffer. The FDN is the reverb machine
-// from dynamics-notebook's study-1-reverb (had8 / fdnIR), extended to stereo
-// by mixing the eight tank taps through two orthogonal sign vectors — the
-// decorrelated L/R tail is what makes the XY scope bloom into 2D.
+// The kick voice and the FDN room live in src/dsp.js (renderKick /
+// fdnStereoIR) — the decorrelated L/R tail is what makes the XY scope bloom
+// into 2D.
 //
 // Scheduling is sample-accurate: a lookahead loop books BufferSources on the
 // audio clock; the visual side consumes the same hit list as each booked hit's
 // time arrives, so light and sound share one clock.
 
 import { euclideanPattern } from "../../src/conductor.js";
-
-const TAU = Math.PI * 2;
-
-// sin(phase) with f(t) = lo + (hi - lo)·e^(-pitchDecay·t), amp e^(-ampDecay·t).
-// Phase is integrated (not sin(2pi·f·t)) so the sweep stays click-free.
-export function renderKick(sr, { pitchHi, pitchLo, pitchDecay, ampDecay, dur = 0.7 }) {
-  const n = Math.floor(sr * dur);
-  const out = new Float32Array(n);
-  let phase = 0;
-  for (let i = 0; i < n; i++) {
-    const t = i / sr;
-    const f = pitchLo + (pitchHi - pitchLo) * Math.exp(-pitchDecay * t);
-    phase += (TAU * f) / sr;
-    out[i] = Math.sin(phase) * Math.exp(-ampDecay * t);
-  }
-  const fade = Math.min(n, Math.floor(sr * 0.01)); // kill any truncation tick
-  for (let i = 0; i < fade; i++) out[n - 1 - i] *= i / fade;
-  return out;
-}
-
-// Fast Walsh-Hadamard over 8 lanes, in place. Orthogonal, lossless.
-function had8(v) {
-  for (let s = 1; s < 8; s <<= 1)
-    for (let i = 0; i < 8; i += s << 1)
-      for (let j = i; j < i + s; j++) {
-        const a = v[j], b = v[j + s];
-        v[j] = a + b;
-        v[j + s] = a - b;
-      }
-  for (let i = 0; i < 8; i++) v[i] *= 0.3535533906; // 1/√8
-}
-
-// Mutually prime-ish delay seconds — the classic spread from the study.
-const DEL = [0.0119, 0.0147, 0.0187, 0.0223, 0.0279, 0.0317, 0.0383, 0.0437];
-
-// L hears the tank taps summed straight, R through alternating signs: two
-// orthogonal mixes of the same lossless tank, so the tails decorrelate
-// without either channel losing energy.
-const SIGN_L = [1, 1, 1, 1, 1, 1, 1, 1];
-const SIGN_R = [1, -1, 1, -1, 1, -1, 1, -1];
-
-export function fdnStereoIR(sr, { size, rt60, damp }) {
-  const N = 8;
-  const len = Math.floor(Math.min(6.5, rt60 * 1.1 + 0.3) * sr);
-  const dl = DEL.map((d) => Math.max(8, Math.floor(d * size * sr)));
-  const cap = dl.map((d) => d + 4);
-  const bufs = cap.map((c) => new Float32Array(c));
-  const wp = new Array(N).fill(0);
-  const lp = new Float32Array(N);
-  const g = dl.map((d) => Math.pow(10, (-3 * (d / sr)) / rt60));
-  const o = new Float32Array(N);
-  const outL = new Float32Array(len);
-  const outR = new Float32Array(len);
-  for (let k = 0; k < len; k++) {
-    let sumL = 0, sumR = 0;
-    for (let i = 0; i < N; i++) {
-      const v = bufs[i][(((wp[i] - dl[i]) % cap[i]) + cap[i]) % cap[i]];
-      lp[i] = v * (1 - damp) + lp[i] * damp; // one-pole damping: air + walls
-      o[i] = lp[i] * g[i]; // RT60 → per-line gain
-      sumL += o[i] * SIGN_L[i];
-      sumR += o[i] * SIGN_R[i];
-    }
-    outL[k] = sumL;
-    outR[k] = sumR;
-    had8(o);
-    const x = k === 0 ? 1 : 0;
-    for (let i = 0; i < N; i++) {
-      bufs[i][wp[i]] = x + o[i];
-      wp[i] = (wp[i] + 1) % cap[i];
-    }
-  }
-  let peak = 1e-9;
-  for (let k = 0; k < len; k++) peak = Math.max(peak, Math.abs(outL[k]), Math.abs(outR[k]));
-  for (let k = 0; k < len; k++) {
-    outL[k] /= peak;
-    outR[k] /= peak;
-  }
-  return [outL, outR];
-}
+import { renderKick, fdnStereoIR } from "../../src/dsp.js";
 
 export class KickEngine {
   constructor() {

@@ -43,6 +43,8 @@ export function exampleTSLFunction(input) {
 
 export { Rack, bindUniform, bindKey, localStorageAdapter } from "./rack.js";
 
+export { renderKick, fdnStereoIR, renderCrack } from "./dsp.js";
+
 export {
   TslSource,
   registerTransform,
