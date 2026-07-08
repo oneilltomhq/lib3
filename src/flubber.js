@@ -219,6 +219,13 @@ export class FlubberField {
 		fresnelBase = 0.48,
 		rimStrength = 0.24,
 		marchSteps = 110,
+		// charge / permeation (slice 1): per-particle charge that decays, splats
+		// into an emission volume, and lights the isosurface from within.
+		chargeDecay = 2.2,        // per-second exponential charge decay (τ≈0.45s)
+		emitGain = 1.6,           // interior-glow output scale
+		emitFloor = 0,            // ambient emission ∝ density — the medium glows at rest
+		emitColor = [0.55, 1.0, 0.72], // charge emission colour (rgb, notebook green-white)
+		innerSteps = 4,           // short march INTO the surface for the inner glow
 	}) {
 		this.renderer = renderer;
 		this.camera = camera;
@@ -230,6 +237,7 @@ export class FlubberField {
 
 		const N = count;
 		const GRID = grid;
+		const INJ_K = 16; // simultaneous charge-injection points per frame
 		const cx = center.x, cy = center.y, cz = center.z;
 		const hx = half.x, hy = half.y, hz = half.z;
 		// box AABB + per-axis size, baked as literals into the shaders
@@ -262,8 +270,10 @@ export class FlubberField {
 		const pPos = instancedArray(initPos, 'vec3');
 		const pVel = instancedArray(N, 'vec3');
 		const pRad = instancedArray(initRad, 'float');
+		const pCharge = instancedArray(N, 'float'); // per-particle charge, 0-init
 		this.pPos = pPos; // exposed for readback (frame-continuity test)
 		this.pRad = pRad;
+		this.pCharge = pCharge;
 
 		// ---- uniforms ---------------------------------------------------------
 		const uDt = uniform(0);
@@ -271,7 +281,23 @@ export class FlubberField {
 		const uDamp = uniform(damp);
 		const uSpeedCap = uniform(speedCap);
 		const uRadiusScale = uniform(1); // live global scale on the baked per-particle radii
-		this.u = { uDt, uT, uDamp, uSpeedCap, uRadiusScale };
+		// charge: decay rate + a one-shot injection sphere (set by strike(), zeroed
+		// after each frame) + emission look controls.
+		const uChargeDecay = uniform(chargeDecay);
+		// up to INJ_K injection spheres per frame — a lightning channel deposits at
+		// BOTH ends (plus interior taps), and many arcs fire at once. Unused slots
+		// carry amt=0. Queue with injectCharge(); update() loads the slots.
+		const uInjPos = Array.from({ length: INJ_K }, () => uniform(new Vector3()));
+		const uInjR = Array.from({ length: INJ_K }, () => uniform(0.6));
+		const uInjAmt = Array.from({ length: INJ_K }, () => uniform(0));
+		const uEmitGain = uniform(emitGain);
+		const uEmitFloor = uniform(emitFloor); // base glow ∝ density (live conductor at rest)
+		const uEmitColor = uniform(new Vector3(emitColor[0], emitColor[1], emitColor[2]));
+		this._pendingInj = []; // charge points queued this frame (consumed in update)
+		this.u = {
+			uDt, uT, uDamp, uSpeedCap, uRadiusScale,
+			uChargeDecay, uInjPos, uInjR, uInjAmt, uEmitGain, uEmitFloor, uEmitColor,
+		};
 
 		// ---- pass 1: particle sim — sum driver forces, integrate --------------
 		this.simCompute = Fn(() => {
@@ -293,6 +319,17 @@ export class FlubberField {
 			const sp = vel.length();
 			vel.mulAssign(clamp(uSpeedCap.div(sp.max(1e-4)), 0, 1));
 			pos.addAssign(vel.mul(uDt));
+
+			// charge: exp decay (dI/dt = −I/τ), then one-shot injection for any
+			// particle inside the strike sphere — falloff so the hit blob lights
+			// brightest at the contact point.
+			const ch = pCharge.element(instanceIndex);
+			ch.mulAssign(clamp(float(1).sub(uChargeDecay.mul(uDt)), 0, 1));
+			for (let k = 0; k < INJ_K; k++) {
+				const injD = pos.sub(uInjPos[k]).length();
+				const injW = clamp(float(1).sub(injD.div(uInjR[k])), 0, 1);
+				ch.addAssign(injW.mul(injW).mul(uInjAmt[k]));
+			}
 		})().compute(N);
 
 		// ---- pass 2: splat density + analytic gradient into the 3D texture ----
@@ -306,6 +343,17 @@ export class FlubberField {
 		volume.name = 'flubberDensity';
 		this.volume = volume;
 
+		// emission volume — charge splatted through the SAME kernels as density,
+		// so glow pools where blobs merge and conducts across connecting necks.
+		// R = emission; GBA unused. HalfFloat to match the density field's range.
+		const emitVol = new Storage3DTexture(GRID, GRID, GRID);
+		emitVol.type = HalfFloatType;
+		emitVol.generateMipmaps = false;
+		emitVol.magFilter = LinearFilter;
+		emitVol.minFilter = LinearFilter;
+		emitVol.name = 'flubberEmission';
+		this.emitVol = emitVol;
+
 		this.splatCompute = Fn(() => {
 			const id = instanceIndex;
 			const x = id.mod(GRID);
@@ -316,6 +364,7 @@ export class FlubberField {
 
 			const dens = float(0).toVar();
 			const grad = vec3(0).toVar(); // analytic ∇density, world units
+			const emit = float(0).toVar(); // Σ charge·kernel — same kernels as density
 			Loop(N, ({ i }) => {
 				const dp = wp.sub(pPos.element(i));
 				const r = pRad.element(i).mul(uRadiusScale);
@@ -326,7 +375,11 @@ export class FlubberField {
 				// trilinearly interpolated gradient is smooth too (unlike
 				// finite differences of the C1-discontinuous density field)
 				grad.addAssign(dp.mul(w.mul(w).mul(-6).div(r2)));
+				emit.addAssign(w.mul(w).mul(pCharge.element(i)));
 			});
+			// ambient floor: a little base emission wherever the medium is, so the
+			// liquid always simmers with charge (a live conductor even between arcs).
+			emit.addAssign(dens.mul(uEmitFloor));
 			// soft window: density → 0 just inside the box faces so the
 			// isosurface never hard-clips against a face (no visible cube edge)
 			const uvw = vec3(x, y, z).add(0.5).div(GRID); // 0..1 across the box
@@ -349,6 +402,7 @@ export class FlubberField {
 			).div(size);
 			const gradOut = grad.mul(fade).add(gradFade.mul(dens));
 			textureStore(volume, vec3(x, y, z), vec4(dens.mul(fade), gradOut));
+			textureStore(emitVol, vec3(x, y, z), vec4(emit.mul(fade), 0, 0, 0));
 		})().compute(GRID * GRID * GRID);
 
 		// ---- pass 3: march the isosurface -------------------------------------
@@ -365,9 +419,12 @@ export class FlubberField {
 		this._rimTex = texture(rimTexture);
 		const sceneTex = this._sceneTex;
 		const rimTex = this._rimTex;
+		const emitTex = texture3D(emitVol, null, 0);
 		// world point → density UVW inside the box. R = density, GBA = ∇density
 		const fieldAt = (p) => densityTex.sample(p.sub(bMin).div(size));
 		const densityAt = (p) => fieldAt(p).r;
+		const emitAt = (p) => emitTex.sample(p.sub(bMin).div(size)).r;
+		const INNER_STEP = Math.max(hx, hy, hz) * 0.03; // ~one blob-radius over 4 taps
 
 		const mat = new MeshBasicNodeMaterial();
 		mat.transparent = true;
@@ -426,7 +483,20 @@ export class FlubberField {
 				.mul(uRefract.negate());
 			const refracted = sceneTex.sample(screenUV.add(refractOffset));
 			const rim = rimTex.sample(screenUV).mul(fres.mul(uRimStrength));
-			return refracted.mul(fres.mul(uFresnelStrength).add(uFresnelBase)).add(rim);
+			const base = refracted.mul(fres.mul(uFresnelStrength).add(uFresnelBase)).add(rim);
+
+			// interior glow: a few short steps INTO the mass along the ray, summing
+			// splatted emission. The globule lights from within (vessel of trapped
+			// light), and the (1+fres) factor sets the rim on fire at grazing angles.
+			const glow = float(0).toVar();
+			const gp = p.toVar();
+			Loop(innerSteps, () => {
+				gp.addAssign(rd.mul(INNER_STEP));
+				glow.addAssign(emitAt(gp));
+			});
+			glow.mulAssign(uEmitGain.div(innerSteps));
+			const glowCol = uEmitColor.mul(glow).mul(fres.add(1));
+			return vec4(base.rgb.add(glowCol), base.a);
 		})();
 
 		this.material = mat;
@@ -438,6 +508,24 @@ export class FlubberField {
 	setSceneTexture(tex) { this._sceneTex.value = tex; }
 	setRimTexture(tex) { this._rimTex.value = tex; }
 
+	/**
+	 * Queue a charge-injection sphere for the next update(). Many can be queued per
+	 * frame — a whole bolt channel (both ends + interior taps) plus every other arc
+	 * firing this frame. Up to INJ_K are applied; extras are dropped. Charge
+	 * accumulates in pCharge and decays from there.
+	 * @param {Vector3} worldPos
+	 * @param {number} [radius=0.4]
+	 * @param {number} [amount=1]
+	 */
+	injectCharge(worldPos, radius = 0.4, amount = 1) {
+		this._pendingInj.push({ pos: worldPos, r: radius, amt: amount });
+	}
+
+	/** Back-compat single-point terminus (see injectCharge). */
+	strike(worldPos, radius = 0.6, amount = 1) {
+		this.injectCharge(worldPos, radius, amount);
+	}
+
 	// advance one frame: sync drivers, run the two compute passes. Must be called
 	// BEFORE the scene render (the march samples the density texture).
 	update(dt, t) {
@@ -446,6 +534,18 @@ export class FlubberField {
 		for (const d of this.drivers) {
 			if (d.update) d.update(dt, t);
 		}
+		// load this frame's queued charge points into the injection slots
+		const pend = this._pendingInj;
+		const slots = this.u.uInjAmt.length;
+		for (let k = 0; k < slots; k++) {
+			const p = pend[k];
+			this.u.uInjAmt[k].value = p ? p.amt : 0;
+			if (p) {
+				this.u.uInjPos[k].value.copy(p.pos);
+				this.u.uInjR[k].value = p.r;
+			}
+		}
+		this._pendingInj = [];
 		this.renderer.compute(this.simCompute);
 		this.renderer.compute(this.splatCompute);
 	}
