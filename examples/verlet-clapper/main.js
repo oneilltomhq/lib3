@@ -323,11 +323,14 @@ window.addEventListener("keydown", (e) => { if (e.key === "c") crack(); });
 canvas.addEventListener("dblclick", crack);
 
 // material presets: same chain, different constraint character
+// taper is the crack amplifier (v ∝ 1/√m into lighter mass — study 5): the
+// whip gets its snap from taper ≪ 1 + a light tip, the clapper its weight
+// from taper 1 + a heavy tip. They are the two ends of one slider.
 const PRESETS = {
-  whip:    { points: 16, bend: 0.04, iterations: 8,  tipMass: 2,  drag: 0.998, gravity: 0.5 },
-  hose:    { points: 12, bend: 0.3,  iterations: 12, tipMass: 4,  drag: 0.99,  gravity: 1.4 },
-  rod:     { points: 10, bend: 0.92, iterations: 34, tipMass: 5,  drag: 0.985, gravity: 0.6 },
-  clapper: { points: 8,  bend: 0.7,  iterations: 22, tipMass: 18, drag: 0.995, gravity: 2.4 },
+  whip:    { points: 16, bend: 0.04, iterations: 8,  tipMass: 1,  taper: 0.02, drag: 0.998, gravity: 0.5 },
+  hose:    { points: 12, bend: 0.3,  iterations: 12, tipMass: 4,  taper: 0.5,  drag: 0.99,  gravity: 1.4 },
+  rod:     { points: 10, bend: 0.92, iterations: 34, tipMass: 5,  taper: 1,    drag: 0.985, gravity: 0.6 },
+  clapper: { points: 8,  bend: 0.7,  iterations: 22, tipMass: 18, taper: 1,    drag: 0.995, gravity: 2.4 },
 };
 function applyPreset(name) {
   Object.assign(chain, PRESETS[name]);
@@ -361,7 +364,9 @@ const SPECS = [
   ["material (the two dials + seasoning)", [
     ["bend stiffness", 0, 1, 0.01, () => chain.bend, (v) => (chain.bend = v)],
     ["iterations", 1, 40, 1, () => chain.iterations, (v) => (chain.iterations = v | 0)],
-    ["tip mass", 1, 30, 0.5, () => chain.tipMass, (v) => chain.setTipMass(v)],
+    ["tip mass", 0.2, 30, 0.2, () => chain.tipMass, (v) => chain.setTipMass(v)],
+    // log-mapped: the slider carries log10(taper), −2 = whip, 0 = uniform
+    ["taper (log10)", -2, 0, 0.05, () => Math.log10(chain.taper), (v) => chain.setTaper(Math.pow(10, v))],
     ["points", 4, 24, 1, () => chain.points, (v) => { chain.points = v | 0; rebuildChain(); }],
     ["drag", 0.95, 1, 0.001, () => chain.drag, (v) => (chain.drag = v)],
     ["gravity", 0, 4, 0.05, () => chain.gravity, (v) => (chain.gravity = v)],
@@ -451,7 +456,7 @@ function animate() {
   refractory -= dt;
   if (aN > P.threshold && refractory <= 0) {
     flash = 1;
-    refractory = 0.35;
+    refractory = 0.6; // long enough that one crack's ring-down can't machine-gun
     strikes++;
     $("strikes").textContent = `discharges: ${strikes}`;
   }

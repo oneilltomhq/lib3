@@ -51,9 +51,17 @@ more passes converge harder toward the rest shape per step. These two
 parameters are most of what "material" means here. Everything else
 (tip mass, drag, gravity) is seasoning.
 
-**Tip mass** enters only through constraint weighting: a pair splits its
+**Mass** enters only through constraint weighting: a pair splits its
 correction by inverse mass, so a heavy tip concedes little and the light
 shaft wraps around it. That asymmetry is the bell-clapper feel.
+
+**Taper** is the crack amplifier. A wave carrying ½mv² into lighter
+segments must speed up — v ∝ 1/√m — so a geometric handle→tip mass taper
+multiplies tip speed by ~√(1/taper). This is why real bullwhips thin to a
+thread (the tip goes supersonic; the crack is a sonic boom), and why a
+heavy tip on a uniform shaft can never crack: it asks the amplifier to run
+backwards. Weight and crack are the two ends of one slider. The full
+decomposition, with the measurement, is dynamics-notebook study 5.
 
 ## The slingshot (why this is generative)
 
@@ -97,12 +105,12 @@ clapper.
 
 ## Presets, read as materials
 
-| Preset | bend | iter | tip mass | reading |
-|---|---|---|---|---|
-| whip | 0.04 | 8 | 2 | no material memory; pure transport; cracks easily |
-| hose | 0.30 | 12 | 4 | rubber; lazy S-curves; occasional crack |
-| rod | 0.92 | 34 | 5 | stiff with subtle flex; tip tracks anchor |
-| clapper | 0.70 | 22 | 18 | heavy pendulum in a stiff shaft; slow, weighty, big unloads |
+| Preset | bend | iter | tip mass | taper | reading |
+|---|---|---|---|---|---|
+| whip | 0.04 | 8 | 1 | 0.02 | tapered to a thread; the amplifier — cracks hard |
+| hose | 0.30 | 12 | 4 | 0.5 | rubber; lazy S-curves; occasional crack |
+| rod | 0.92 | 34 | 5 | 1 | stiff with subtle flex; tip tracks anchor |
+| clapper | 0.70 | 22 | 18 | 1 | heavy pendulum in a stiff shaft; slow, weighty, big unloads |
 
 Boids sub-lattices slot in later without touching any of this: the tip well
 stays a shared force; murmuration is local rules on top.
