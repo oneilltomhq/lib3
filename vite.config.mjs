@@ -127,6 +127,7 @@ export default defineConfig(({ mode }) => {
             index: resolve(__dirname, "src/index.js"),
             waves: resolve(__dirname, "src/waves.js"),
             knotMorph: resolve(__dirname, "src/knotMorph.js"),
+            conductor: resolve(__dirname, "src/conductor.js"),
             thunder: resolve(__dirname, "src/thunder.js"),
             nimbus: resolve(__dirname, "src/nimbus/index.js"),
             metaballs: resolve(__dirname, "src/metaballs.js"),

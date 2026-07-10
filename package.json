@@ -16,6 +16,9 @@
     "./knotMorph": {
       "import": "./dist/knotMorph.js"
     },
+    "./conductor": {
+      "import": "./dist/conductor.js"
+    },
     "./thunder": {
       "import": "./dist/thunder.js"
     },

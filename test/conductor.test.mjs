@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Conductor, Spring, euclideanPattern } from "../src/conductor.js";
+import { Conductor, Spring, Slew, euclideanPattern } from "../src/conductor.js";
 
 test("euclideanPattern(8,3) is the tresillo", () => {
   const p = euclideanPattern(8, 3);
@@ -91,4 +91,96 @@ test("spring survives a huge dt without exploding", () => {
   const s = new Spring({ value: 0, target: 1, freq: 3, zeta: 0.3 });
   s.update(10);
   assert.ok(Number.isFinite(s.value) && Math.abs(s.value) < 5);
+});
+
+test("phrase01 reads 0 before the first update, not ~1", () => {
+  const c = new Conductor({ bpm: 60, beatsPerBar: 4, barsPerPhrase: 4 });
+  assert.equal(c.phrase01, 0);
+  assert.equal(c.bar01, 0);
+});
+
+test("phraseBeats and phraseSeconds track config and live bpm", () => {
+  const c = new Conductor({ bpm: 120, beatsPerBar: 4, barsPerPhrase: 2 });
+  assert.equal(c.phraseBeats, 8);
+  assert.equal(c.phraseSeconds, 4); // 8 beats at 120bpm
+  c.bpm = 60;
+  assert.equal(c.phraseSeconds, 8);
+});
+
+test("onPhrase fires at each phrase head but never at t=0", () => {
+  const c = new Conductor({ bpm: 60, beatsPerBar: 4, barsPerPhrase: 1 });
+  const heads = [];
+  c.onPhrase((e) => heads.push(e.phrase));
+  c.update(0.01); // crosses beat 0 — must not fire
+  assert.deepEqual(heads, []);
+  for (let i = 0; i < 900; i++) c.update(0.01); // ~9s = past heads 1 and 2
+  assert.deepEqual(heads, [1, 2]);
+});
+
+test("onPhrase catches every head crossed by one big dt", () => {
+  const c = new Conductor({ bpm: 60, beatsPerBar: 4, barsPerPhrase: 1 });
+  const heads = [];
+  c.onPhrase((e) => heads.push(e.phrase));
+  c.update(13); // 13 beats = heads 1, 2, 3
+  assert.deepEqual(heads, [1, 2, 3]);
+});
+
+test("onPhrase unsubscribe stops further fires", () => {
+  const c = new Conductor({ bpm: 60, beatsPerBar: 4, barsPerPhrase: 1 });
+  let n = 0;
+  const off = c.onPhrase(() => n++);
+  c.update(5);
+  off();
+  c.update(4);
+  assert.equal(n, 1);
+});
+
+test("voice window gates hits to a slice of the phrase", () => {
+  const c = new Conductor({ bpm: 60, beatsPerBar: 4, barsPerPhrase: 1 });
+  const fired = [];
+  // 4 steps over the 4-beat phrase land at phrase01 0, .25, .5, .75
+  c.voice({ steps: 4, hits: 4, window: [0.5, 1], onHit: (e) => fired.push(e.step) });
+  for (let i = 0; i < 500; i++) c.update(0.01); // one 4s phrase + 1s of next
+  assert.deepEqual(fired, [2, 3]); // heads land at phrase01 = 0, outside window
+});
+
+test("wrapped voice window (a > b) spans the phrase head", () => {
+  const c = new Conductor({ bpm: 60, beatsPerBar: 4, barsPerPhrase: 1 });
+  const fired = [];
+  c.voice({ steps: 4, hits: 4, window: [0.7, 0.3], onHit: (e) => fired.push(e.step) });
+  for (let i = 0; i < 400; i++) c.update(0.01); // one 4s phrase
+  assert.deepEqual(fired, [0, 1, 3]); // 0.5 excluded, head and 0.25/0.75 kept
+});
+
+test("slew rate cap makes arrival take distance/maxRate", () => {
+  const s = new Slew({ value: 0, target: 2, maxRate: 1 });
+  for (let i = 0; i < 100; i++) s.update(0.016); // 1.6s of a 2s ramp
+  assert.ok(s.value > 1.5 && s.value < 1.7, `mid-ramp at rate cap, got ${s.value}`);
+  for (let i = 0; i < 50; i++) s.update(0.016);
+  assert.ok(Math.abs(s.value - 2) < 1e-3, "arrived");
+});
+
+test("slew accel cap gives an S-curve that never overshoots", () => {
+  const s = new Slew({ value: 0, target: 1, maxRate: 2, maxAccel: 4 });
+  let peak = 0;
+  let early = null;
+  for (let i = 0; i < 200; i++) {
+    s.update(0.016);
+    if (i === 5) early = s.value;
+    peak = Math.max(peak, s.value);
+  }
+  assert.ok(early < 0.08, "starts slow (accel-limited)");
+  assert.ok(peak <= 1 + 1e-6, `no overshoot, peaked at ${peak}`);
+  assert.ok(Math.abs(s.value - 1) < 1e-3, "settled at target");
+});
+
+test("slew survives a huge dt and retarget mid-flight", () => {
+  const s = new Slew({ value: 0, target: 1, maxRate: 3, maxAccel: 10 });
+  s.update(10); // clamped to 0.25s of sim, like Spring — bounded, no blowup
+  assert.ok(Number.isFinite(s.value) && s.value <= 1 + 1e-6);
+  for (let i = 0; i < 100; i++) s.update(0.016);
+  assert.ok(Math.abs(s.value - 1) < 1e-3, "arrived after enough frames");
+  s.target = -1;
+  for (let i = 0; i < 500; i++) s.update(0.016);
+  assert.ok(Math.abs(s.value + 1) < 1e-3, "retargeted and arrived");
 });
