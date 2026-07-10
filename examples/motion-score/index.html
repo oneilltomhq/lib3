@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Motion Score — lib3</title>
+    <style>
+      :root { --bg:#04050a; --txt:#aeb6c6; --dim:#5a6478; --accent:#39e6c3; }
+      html, body { margin:0; height:100%; background:var(--bg); color:var(--txt);
+        font:12px/1.4 ui-monospace, Menlo, Consolas, monospace; overflow:hidden; }
+      canvas { display:block; width:100vw; height:100vh; }
+      #hud { position:fixed; left:12px; top:10px; pointer-events:none; }
+      #hud h1 { font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+        color:var(--accent); margin:0 0 2px; }
+      #hud .sub { color:var(--dim); font-size:10px; margin:0; max-width:380px; }
+      #stage { position:fixed; right:12px; top:10px; color:var(--dim);
+        font-size:10px; letter-spacing:.1em; text-transform:uppercase; text-align:right; }
+      #stage b { color:var(--accent); font-weight:normal; }
+      #fail { display:none; position:fixed; inset:0; place-items:center; }
+    </style>
+    <script type="module" src="./main.js"></script>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div id="hud">
+      <h1>Motion Score</h1>
+      <p class="sub">two attractor wells on a choreographed phrase ·
+        orbit → gear-shift build → late brake into tight arc → crash release ·
+        drag to orbit</p>
+    </div>
+    <div id="stage"><b id="stage-name">orbit</b><br /><span id="stage-meta"></span></div>
+    <div id="fail">WebGPU unavailable</div>
+  </body>
+</html>
