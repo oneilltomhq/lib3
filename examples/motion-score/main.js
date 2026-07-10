@@ -35,6 +35,7 @@
 import * as THREE from "three/webgpu";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Conductor, Spring, Slew } from "../../src/conductor.js";
+import { slots } from "./techniques.js";
 
 const canvas = document.getElementById("view");
 if (!navigator.gpu) {
@@ -115,7 +116,26 @@ const state = {
   dampNow: T.damp,
   crashTimer: 0,
   omega: 0,
+  fx: {}, // per-fire technique scratch (cleared on technique switch)
 };
+
+// ---- recipe: one technique per slot (?crash=wall&recover=ride) ------------------------
+const params = new URLSearchParams(location.search);
+const recipe = {};
+for (const [slot, techs] of Object.entries(slots)) {
+  const want = params.get(slot);
+  recipe[slot] = want && techs[want] ? want : Object.keys(techs)[0];
+}
+function setTechnique(slot, name) {
+  if (!slots[slot]?.[name]) return;
+  recipe[slot] = name;
+  state.fx = {}; // kill any in-flight shell/flip from the old technique
+  const url = new URL(location);
+  url.searchParams.set(slot, name);
+  history.replaceState(null, "", url);
+  refreshPanel?.();
+}
+window.__setRecipe = setTechnique;
 
 // wells: [partner A, partner B, drifter]
 const wells = [
@@ -124,6 +144,9 @@ const wells = [
   { p: new THREE.Vector3(), g: 0, spin: T.spin * 0.5 },
 ];
 const bary = new THREE.Vector3();
+
+// context handed to every technique hook (arrays are filled in below)
+const ctx = { T, state, wells, bary, drive, conductor, pos: null, vel: null, mass: null, N: 0 };
 
 // ---- shift voice: gear changes during the build --------------------------------------
 conductor.voice({
@@ -135,25 +158,14 @@ conductor.voice({
   },
 });
 
-// ---- crash: phrase head. Macro energy → micro scatter. --------------------------------
+// ---- crash: phrase head. The ledger is spent HERE; what the energy converts
+// into is the active crash technique's business.
 conductor.onPhrase(() => {
   const e = (state.energy[0] + state.energy[1]) * 0.5;
-  drive.kick(-T.crashKick); // drive cut: coherent motion dies for a beat
-  const imp = T.scatterBase + T.scatterGain * e;
-  let s = 987654321; // fresh scatter each crash, still deterministic-ish
-  const rnd = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
-  for (let i = 0; i < N; i++) {
-    // incoherent: random direction, random magnitude — spray, not a shove
-    const az = rnd() * Math.PI * 2;
-    const el = (rnd() - 0.5) * Math.PI * 0.7;
-    const m = imp * (0.35 + rnd() * 0.65);
-    vel[i * 3] += Math.cos(az) * Math.cos(el) * m;
-    vel[i * 3 + 1] += Math.sin(az) * Math.cos(el) * m;
-    vel[i * 3 + 2] += Math.sin(el) * m * 0.6;
-  }
+  slots.crash[recipe.crash].fire(ctx, e);
   state.energy[0] = state.energy[1] = T.energyFloor; // ledger spent
   state.gearTarget = 1; // back to first gear
-  state.crashTimer = T.crashDampTime; // heavy mop-up window
+  state.crashTimer = T.crashDampTime; // release window (recover slot decides what it means)
 });
 
 // ---- swarm ----------------------------------------------------------------------------
@@ -163,6 +175,7 @@ const vel = new Float32Array(N * 3);
 const nzFreq = new Float32Array(N * 3); // per-particle noise grain
 const nzPhase = new Float32Array(N * 3);
 const mass = new Float32Array(N); // pull variation, like flubber's hash mass
+Object.assign(ctx, { pos, vel, mass, N });
 
 {
   // seedable LCG so runs are comparable while tuning
@@ -234,9 +247,11 @@ const score = {
   R: T.rWide,
   omega: 0,
   wells: wells.map(() => [0, 0, 0]),
+  wellG: [0, 0, 0],
   stage: "orbit",
   meanSpeed: 0,
   tuning: T,
+  recipe,
 };
 window.__score = score;
 
@@ -251,9 +266,9 @@ function updateScore(dt, t) {
   state.energy[0] = Math.min(1, state.energy[0] + charge);
   state.energy[1] = Math.min(1, state.energy[1] + charge * 0.92); // slight detune
 
-  // -- damping: heavy after the crash, cruising otherwise; blended, never stepped ------
+  // -- damping: the recover technique decides what release means; blended, never stepped
   state.crashTimer = Math.max(0, state.crashTimer - dt);
-  const dampTarget = state.crashTimer > 0 ? T.crashDamp : T.damp;
+  const dampTarget = slots.recover[recipe.recover].dampTarget(ctx);
   state.dampNow += (dampTarget - state.dampNow) * Math.min(1, T.dampBlend * dt);
 
   // -- drive spring (shift saw + crash cut live in its velocity) ------------------------
@@ -304,6 +319,9 @@ function updateScore(dt, t) {
     Math.sin(state.driftTheta * 0.7) * 0.5
   );
   wells[2].g = T.drifterG * (0.5 + 0.5 * (state.energy[0] + state.energy[1]) * 0.5);
+
+  // -- crash technique frame hook: runs after wells are set, before integration --------
+  slots.crash[recipe.crash].frame?.(ctx, dt);
 
   // -- integrate the swarm ----------------------------------------------------------------
   const soft2 = T.soft * T.soft;
@@ -362,6 +380,7 @@ function updateScore(dt, t) {
     score.wells[w][0] = wells[w].p.x;
     score.wells[w][1] = wells[w].p.y;
     score.wells[w][2] = wells[w].p.z;
+    score.wellG[w] = wells[w].g;
   }
   score.stage =
     state.crashTimer > 0 ? "release"
@@ -369,6 +388,92 @@ function updateScore(dt, t) {
     : p < 0.92 ? "brake"
     : "held";
 }
+
+// ---- control panel --------------------------------------------------------------------------
+// Sliders write straight into T / the conductor — everything reads live.
+// [label, get, set, min, max, step]
+const knobs = [
+  ["bpm", () => conductor.bpm, (v) => (conductor.bpm = v), 60, 160, 1],
+  ["bars/phrase", () => conductor.barsPerPhrase, (v) => (conductor.barsPerPhrase = v), 1, 8, 1],
+  ["swing", () => conductor.swing, (v) => (conductor.swing = v), 0, 0.6, 0.01],
+  ["grav", () => T.grav, (v) => (T.grav = v), 0.5, 10, 0.1],
+  ["spin", () => T.spin, (v) => (T.spin = v), 0, 1.5, 0.01],
+  ["brake at", () => T.brakeAt, (v) => (T.brakeAt = v), 0.4, 0.95, 0.01],
+  ["r tight", () => T.rTight, (v) => (T.rTight = v), 0.2, 2, 0.01],
+  ["crash kick", () => T.crashKick, (v) => (T.crashKick = v), 0, 30, 0.5],
+  ["impact gain", () => T.scatterGain, (v) => (T.scatterGain = v), 0, 10, 0.1],
+  ["mop damp", () => T.crashDamp, (v) => (T.crashDamp = v), 0.5, 10, 0.1],
+  ["mop time", () => T.crashDampTime, (v) => (T.crashDampTime = v), 0.1, 3, 0.05],
+  ["cruise damp", () => T.damp, (v) => (T.damp = v), 0.2, 4, 0.05],
+  ["gear step", () => T.gearStep, (v) => (T.gearStep = v), 0, 0.6, 0.01],
+  ["drifter g", () => T.drifterG, (v) => (T.drifterG = v), 0, 2, 0.05],
+  ["grain", () => T.noiseAmt, (v) => (T.noiseAmt = v), 0, 1.5, 0.01],
+];
+
+let refreshPanel;
+{
+  const panel = document.getElementById("panel");
+  const techButtons = [];
+  for (const [slot, techs] of Object.entries(slots)) {
+    const h = document.createElement("h2");
+    h.textContent = slot;
+    panel.appendChild(h);
+    const row = document.createElement("div");
+    row.className = "tech";
+    for (const [name, tech] of Object.entries(techs)) {
+      const b = document.createElement("button");
+      b.textContent = tech.label;
+      b.onclick = () => setTechnique(slot, name);
+      techButtons.push([b, slot, name]);
+      row.appendChild(b);
+    }
+    panel.appendChild(row);
+  }
+  const h = document.createElement("h2");
+  h.textContent = "tuning";
+  panel.appendChild(h);
+  for (const [label, get, set, min, max, step] of knobs) {
+    const row = document.createElement("div");
+    row.className = "row";
+    const name = document.createElement("span");
+    name.textContent = label;
+    const input = document.createElement("input");
+    Object.assign(input, { type: "range", min, max, step, value: get() });
+    const val = document.createElement("span");
+    val.textContent = String(get());
+    input.oninput = () => {
+      set(Number(input.value));
+      val.textContent = input.value;
+    };
+    row.append(name, input, val);
+    panel.appendChild(row);
+  }
+  const hint = document.createElement("div");
+  hint.className = "hint";
+  hint.textContent = "keys: 1–5 crash · r recover · h panel";
+  panel.appendChild(hint);
+
+  refreshPanel = () => {
+    for (const [b, slot, name] of techButtons)
+      b.classList.toggle("on", recipe[slot] === name);
+  };
+  refreshPanel();
+}
+
+window.addEventListener("keydown", (e) => {
+  if (e.target instanceof HTMLInputElement) return;
+  const crashNames = Object.keys(slots.crash);
+  const i = "12345".indexOf(e.key);
+  if (i >= 0 && crashNames[i]) setTechnique("crash", crashNames[i]);
+  if (e.key === "r") {
+    const names = Object.keys(slots.recover);
+    setTechnique("recover", names[(names.indexOf(recipe.recover) + 1) % names.length]);
+  }
+  if (e.key === "h") {
+    const panel = document.getElementById("panel");
+    panel.style.display = panel.style.display === "none" ? "" : "none";
+  }
+});
 
 // ---- render ---------------------------------------------------------------------------------
 const stageName = document.getElementById("stage-name");
@@ -414,6 +519,7 @@ renderer.setAnimationLoop(() => {
     hudStamp = elapsed;
     stageName.textContent = score.stage;
     stageMeta.textContent =
+      `${recipe.crash}/${recipe.recover} · ` +
       `phrase ${score.phrase01.toFixed(2)} · R ${score.R.toFixed(2)} · ` +
       `gear ${score.gear.toFixed(2)} · e ${state.energy[0].toFixed(2)}`;
   }
