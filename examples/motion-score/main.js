@@ -35,7 +35,7 @@
 import * as THREE from "three/webgpu";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Conductor, Spring, Slew } from "../../src/conductor.js";
-import { slots } from "./techniques.js";
+import { slots, slotHints } from "./techniques.js";
 
 const canvas = document.getElementById("view");
 if (!navigator.gpu) {
@@ -159,14 +159,18 @@ conductor.voice({
 });
 
 // ---- crash: phrase head. The ledger is spent HERE; what the energy converts
-// into is the active crash technique's business.
-conductor.onPhrase(() => {
+// into is the active crash technique's business. Also fireable on demand
+// (key c / panel button) so crash params have an instant feedback loop
+// instead of a once-per-phrase one.
+function fireCrash() {
   const e = (state.energy[0] + state.energy[1]) * 0.5;
   slots.crash[recipe.crash].fire(ctx, e);
   state.energy[0] = state.energy[1] = T.energyFloor; // ledger spent
   state.gearTarget = 1; // back to first gear
   state.crashTimer = T.crashDampTime; // release window (recover slot decides what it means)
-});
+}
+conductor.onPhrase(fireCrash);
+window.__crashNow = fireCrash;
 
 // ---- swarm ----------------------------------------------------------------------------
 const N = T.count;
@@ -391,19 +395,19 @@ function updateScore(dt, t) {
 
 // ---- control panel --------------------------------------------------------------------------
 // Sliders write straight into T / the conductor — everything reads live.
-// [label, get, set, min, max, step]
+// [label, get, set, min, max, step, gate?] — gate is a T-key; a gated knob
+// grays out unless some active technique declares it in `uses`.
 const knobs = [
   ["bpm", () => conductor.bpm, (v) => (conductor.bpm = v), 60, 160, 1],
   ["bars/phrase", () => conductor.barsPerPhrase, (v) => (conductor.barsPerPhrase = v), 1, 8, 1],
-  ["swing", () => conductor.swing, (v) => (conductor.swing = v), 0, 0.6, 0.01],
   ["grav", () => T.grav, (v) => (T.grav = v), 0.5, 10, 0.1],
   ["spin", () => T.spin, (v) => (T.spin = v), 0, 1.5, 0.01],
   ["brake at", () => T.brakeAt, (v) => (T.brakeAt = v), 0.4, 0.95, 0.01],
   ["r tight", () => T.rTight, (v) => (T.rTight = v), 0.2, 2, 0.01],
-  ["crash kick", () => T.crashKick, (v) => (T.crashKick = v), 0, 30, 0.5],
-  ["impact gain", () => T.scatterGain, (v) => (T.scatterGain = v), 0, 10, 0.1],
-  ["mop damp", () => T.crashDamp, (v) => (T.crashDamp = v), 0.5, 10, 0.1],
-  ["mop time", () => T.crashDampTime, (v) => (T.crashDampTime = v), 0.1, 3, 0.05],
+  ["crash kick", () => T.crashKick, (v) => (T.crashKick = v), 0, 30, 0.5, "crashKick"],
+  ["impact gain", () => T.scatterGain, (v) => (T.scatterGain = v), 0, 10, 0.1, "scatterGain"],
+  ["mop damp", () => T.crashDamp, (v) => (T.crashDamp = v), 0.5, 10, 0.1, "crashDamp"],
+  ["mop time", () => T.crashDampTime, (v) => (T.crashDampTime = v), 0.1, 3, 0.05, "crashDampTime"],
   ["cruise damp", () => T.damp, (v) => (T.damp = v), 0.2, 4, 0.05],
   ["gear step", () => T.gearStep, (v) => (T.gearStep = v), 0, 0.6, 0.01],
   ["drifter g", () => T.drifterG, (v) => (T.drifterG = v), 0, 2, 0.05],
@@ -414,6 +418,7 @@ let refreshPanel;
 {
   const panel = document.getElementById("panel");
   const techButtons = [];
+  const gatedRows = []; // [row, input, gateKey]
   for (const [slot, techs] of Object.entries(slots)) {
     const h = document.createElement("h2");
     h.textContent = slot;
@@ -428,11 +433,22 @@ let refreshPanel;
       row.appendChild(b);
     }
     panel.appendChild(row);
+    if (slotHints[slot]) {
+      const note = document.createElement("div");
+      note.className = "note";
+      note.textContent = slotHints[slot];
+      panel.appendChild(note);
+    }
   }
+  const fire = document.createElement("button");
+  fire.className = "fire";
+  fire.textContent = "crash now (c)";
+  fire.onclick = fireCrash;
+  panel.appendChild(fire);
   const h = document.createElement("h2");
   h.textContent = "tuning";
   panel.appendChild(h);
-  for (const [label, get, set, min, max, step] of knobs) {
+  for (const [label, get, set, min, max, step, gate] of knobs) {
     const row = document.createElement("div");
     row.className = "row";
     const name = document.createElement("span");
@@ -447,15 +463,25 @@ let refreshPanel;
     };
     row.append(name, input, val);
     panel.appendChild(row);
+    if (gate) gatedRows.push([row, input, gate]);
   }
   const hint = document.createElement("div");
   hint.className = "hint";
-  hint.textContent = "keys: 1–5 crash · r recover · h panel";
+  hint.textContent = "keys: 1–5 crash · r recover · c crash now · h panel";
   panel.appendChild(hint);
 
   refreshPanel = () => {
     for (const [b, slot, name] of techButtons)
       b.classList.toggle("on", recipe[slot] === name);
+    // gray out knobs no active technique reads
+    const used = new Set();
+    for (const slot of Object.keys(slots))
+      for (const key of slots[slot][recipe[slot]].uses ?? []) used.add(key);
+    for (const [row, input, gate] of gatedRows) {
+      const live = used.has(gate);
+      row.style.opacity = live ? "" : "0.35";
+      input.disabled = !live;
+    }
   };
   refreshPanel();
 }
@@ -465,6 +491,7 @@ window.addEventListener("keydown", (e) => {
   const crashNames = Object.keys(slots.crash);
   const i = "12345".indexOf(e.key);
   if (i >= 0 && crashNames[i]) setTechnique("crash", crashNames[i]);
+  if (e.key === "c") fireCrash();
   if (e.key === "r") {
     const names = Object.keys(slots.recover);
     setTechnique("recover", names[(names.indexOf(recipe.recover) + 1) % names.length]);

@@ -31,6 +31,7 @@ export const crashes = {
   // not transferred — kept as the control specimen for comparison.
   spray: {
     label: "spray (control)",
+    uses: ["crashKick", "scatterBase", "scatterGain"],
     fire(ctx, e) {
       const { T, vel, N, drive } = ctx;
       drive.kick(-T.crashKick);
@@ -51,6 +52,7 @@ export const crashes = {
   // distance. Coherent direction is what makes it read as an impact.
   shockwave: {
     label: "shockwave",
+    uses: ["crashKick", "scatterBase", "scatterGain"],
     fire(ctx, e) {
       const { T, pos, vel, N, bary, drive } = ctx;
       drive.kick(-T.crashKick * 0.25); // a flinch, not a stall
@@ -72,6 +74,7 @@ export const crashes = {
   // beat, scaled by the ledger, then re-grip and gather the debris.
   repulse: {
     label: "repulse flip",
+    uses: [], // scales off the ledger only — crashKick/scatter knobs are inert here
     fire(ctx, e) {
       ctx.state.fx.repulse = { time: 0.45, e };
     },
@@ -92,6 +95,7 @@ export const crashes = {
   // with restitution, tangential survives — debris keeps its speed, redirected.
   wall: {
     label: "wall",
+    uses: ["crashKick", "scatterBase", "scatterGain"], // via the shockwave it rides on
     fire(ctx, e) {
       crashes.shockwave.fire(ctx, e * 0.8); // send them flying first
       ctx.state.fx.shell = {
@@ -126,6 +130,7 @@ export const crashes = {
   // the whole room surges around the orbit instead of dying.
   surge: {
     label: "surge",
+    uses: ["crashKick", "scatterBase", "scatterGain"],
     fire(ctx, e) {
       const { T, pos, vel, N, bary, drive } = ctx;
       drive.kick(T.crashKick * 0.7); // up, not down
@@ -159,6 +164,7 @@ export const recovers = {
   // Heavy mop-up (the original): damping spikes and soaks the debris fast.
   mop: {
     label: "mop (control)",
+    uses: ["crashDamp", "crashDampTime", "damp"],
     dampTarget(ctx) {
       return ctx.state.crashTimer > 0 ? ctx.T.crashDamp : ctx.T.damp;
     },
@@ -166,6 +172,7 @@ export const recovers = {
   // Consequence persists: cruise damping throughout, the debris rides out.
   ride: {
     label: "ride",
+    uses: ["damp"],
     dampTarget(ctx) {
       return ctx.T.damp;
     },
@@ -173,3 +180,9 @@ export const recovers = {
 };
 
 export const slots = { crash: crashes, recover: recovers };
+
+// one-liners the panel shows under each slot's buttons
+export const slotHints = {
+  crash: "what the stored phrase energy converts into at the head",
+  recover: "damping after the hit — mop soaks debris fast, ride lets it run",
+};
