@@ -38,14 +38,19 @@ export class Rack {
    *   storage   — { load(): object, save(object) } snapshot persistence
    *               (default in-memory; pass a localStorage adapter in a page)
    *   defaultRamp — ms glide for agent set() (default 400, matches faust rack)
+   *   muteRamp  — ms ease of a voice's mask between rack and binding (default 400)
    */
-  constructor({ now, storage, defaultRamp = 400 } = {}) {
+  constructor({ now, storage, defaultRamp = 400, muteRamp = 400 } = {}) {
     this._now = now || (() => (globalThis.performance ?? Date).now());
     this._storage = storage || memoryStorage();
     this.defaultRamp = defaultRamp;
+    this._muteRamp = muteRamp;
     this._params = new Map();   // path -> { meta, get, set }
     this._ramps = new Map();    // path -> { from, target, elapsed, ms, resolve }
     this._carry = new Map();    // path -> last value, survives rebuilds
+    this._voices = new Map();   // path -> { binding, identity, shadow, mix, goal }
+    this._soloPath = null;      // the one voice currently soloed, or null
+    this._preSolo = null;       // path -> goal, the mute states solo interrupted
     this._handlers = {};        // extra command types
     this._session = [];
     this._sessionStart = this._now();
@@ -55,22 +60,55 @@ export class Rack {
 
   /**
    * Register a param. binding = { get, set } (see bindUniform/bindKey) plus
-   * meta: { label, type = "knob", min, max, step, init, unit }. If this path
-   * was set before a rebuild, the previous value is re-applied (clamped) —
+   * meta: { label, type = "knob", min, max, step, init, unit, voice }. If this
+   * path was set before a rebuild, the previous value is re-applied (clamped) —
    * agents iterate on a scene without losing knob settings.
+   *
+   * VOICE (meta.voice = true | <number>): declares the param mutable/soloable.
+   * `true` means the binding's identity is 0 (the additive/gain contribution
+   * subtracts cleanly); a number gives an explicit identity. Voice is DECLARED,
+   * never inferred from min===0 — a floor of zero that FREEZES rather than
+   * removes is bone, not a voice. A voice's effective get/set are swapped for
+   * shadow accessors: the rack reads/writes the LOGICAL value (shadow), while
+   * the real binding receives  identity + (shadow − identity) · mix  whenever
+   * shadow or mix moves. Mute only eases `mix`, so it is a mask, never a
+   * destructive write: whatever arrives while muted is honored on unmute.
    */
   add(path, binding, meta = {}) {
+    let get = binding.get, set = binding.set;
+    const isVoice = meta.voice !== undefined && meta.voice !== false;
+    if (isVoice) {
+      const identity = meta.voice === true ? 0 : meta.voice;
+      const prev = this._voices.get(path); // a plain re-add keeps the mask state
+      const v = {
+        binding, identity,
+        shadow: prev ? prev.shadow : binding.get(),
+        mix: prev?.mix ?? 1, goal: prev?.goal ?? 1,
+      };
+      this._voices.set(path, v);
+      get = () => v.shadow;
+      set = (x) => { v.shadow = x; this._applyVoice(v); };
+      this._applyVoice(v); // seat the real binding under the current mask
+    } else {
+      this._voices.delete(path); // re-added as bone: drop any stale mask
+    }
     const m = {
       path, label: meta.label ?? path.split("/").filter(Boolean).pop(),
       type: meta.type ?? "knob",
       min: meta.min, max: meta.max, step: meta.step,
-      init: meta.init ?? binding.get(), unit: meta.unit,
+      init: meta.init ?? get(), unit: meta.unit,
+      voice: isVoice,
     };
-    this._params.set(path, { meta: m, get: binding.get, set: binding.set });
+    this._params.set(path, { meta: m, get, set });
     if (this._carry.has(path) && m.type !== "trigger") {
-      binding.set(clamp(this._carry.get(path), m.min, m.max));
+      set(clamp(this._carry.get(path), m.min, m.max));
     }
     return this;
+  }
+
+  /** Seat a voice's real binding under its current mask. */
+  _applyVoice(v) {
+    v.binding.set(v.identity + (v.shadow - v.identity) * v.mix);
   }
 
   /** Register every key of a values object under a prefix; channel specs
@@ -84,11 +122,12 @@ export class Rack {
     return this;
   }
 
-  remove(path) { this._cancelRamp(path); this._params.delete(path); }
+  remove(path) { this._cancelRamp(path); this._params.delete(path); this._voices.delete(path); }
   clear() { for (const p of [...this._params.keys()]) this.remove(p); }
 
   params() {
-    return [...this._params.values()].map(({ meta, get }) => ({ ...meta, value: get() }));
+    return [...this._params.values()].map(({ meta, get }) =>
+      ({ ...meta, value: get(), muted: this.muted(meta.path) }));
   }
 
   get(path) { return this._params.get(path)?.get(); }
@@ -104,6 +143,8 @@ export class Rack {
     }
     if (cmd.type === "set") return this._doSet(cmd.path, cmd.value, cmd.ramp ?? 0);
     if (cmd.type === "pulse") return this._doPulse(cmd.path, cmd.ms ?? 90);
+    if (cmd.type === "mute") return this._doMute(cmd.path, cmd.on ?? true);
+    if (cmd.type === "solo") return this._doSolo(cmd.path);
     const h = this._handlers[cmd.type];
     if (h) return h(cmd, source);
     throw new Error(`rack: unknown command type "${cmd.type}"`);
@@ -118,6 +159,55 @@ export class Rack {
   /** Momentary: param to max, hold ms, back to min. */
   pulse(path, ms = 90, source = "agent") {
     return this.dispatch({ type: "pulse", path, ms }, source);
+  }
+
+  // ---- the mute bus: subtraction as a mask, never a destructive write --------
+  // Mute eases a voice's `mix` toward 0 (in update over muteRamp ms), masking
+  // the binding to its identity while the rack keeps ramping the logical value.
+  // These flow through the recorded channel like set/pulse, so a session replays
+  // its mutes and solos too.
+
+  /** Mask a voice toward its identity (on) or back to its logical value (off). */
+  mute(path, on = true, source = "human") {
+    return this.dispatch({ type: "mute", path, on }, source);
+  }
+
+  /** Solo a voice: mute every OTHER voice, keep this one. Pressing the same
+   * path again restores the mute states solo interrupted; a different path
+   * re-targets. Returns the soloed path, or null once solo is released. */
+  solo(path, source = "human") {
+    return this.dispatch({ type: "solo", path }, source);
+  }
+
+  /** Is this voice masked (goal toward identity)? Non-voices are never muted. */
+  muted(path) { return (this._voices.get(path)?.goal ?? 1) < 0.5; }
+
+  /** The path currently soloed, or null. */
+  soloed() { return this._soloPath; }
+
+  /** Every declared voice path. */
+  voices() { return [...this._voices.keys()]; }
+
+  _doMute(path, on = true) {
+    const v = this._voices.get(path);
+    if (!v) return false; // bone / unknown: nothing to mask, no-op
+    v.goal = on ? 0 : 1;
+    this._soloPath = null; this._preSolo = null; // a hand-set mute owns the bus
+    return this.muted(path);
+  }
+
+  _doSolo(path) {
+    if (!this._voices.has(path)) return null;
+    if (this._soloPath === path) { // release: restore what solo interrupted
+      for (const [p, g] of this._preSolo) { const v = this._voices.get(p); if (v) v.goal = g; }
+      this._soloPath = null; this._preSolo = null;
+      return null;
+    }
+    if (!this._preSolo) // remember the pre-solo state only on the first solo
+      this._preSolo = new Map([...this._voices].map(([p, v]) => [p, v.goal]));
+    for (const [p, v] of this._voices) v.goal = p === path ? 1 : 0;
+    this._soloPath = path;
+    return path;
   }
 
   _doSet(path, value, rampMs) {
@@ -152,7 +242,6 @@ export class Rack {
 
   /** Advance ramps from the host loop. dt in SECONDS (lib3 convention). */
   update(dt) {
-    if (!this._ramps.size) return;
     for (const [path, r] of [...this._ramps]) {
       const p = this._params.get(path);
       if (!p) { this._ramps.delete(path); r.resolve(undefined); continue; }
@@ -160,6 +249,15 @@ export class Rack {
       const k = Math.min(1, r.elapsed / r.ms);
       p.set(r.from + (r.target - r.from) * k);
       if (k >= 1) { this._ramps.delete(path); r.resolve(r.target); }
+    }
+    // ease each voice's mask toward its goal, reapplying it as it moves
+    const step = (dt * 1000) / this._muteRamp;
+    for (const v of this._voices.values()) {
+      if (v.mix === v.goal) continue;
+      v.mix = v.goal > v.mix
+        ? Math.min(v.goal, v.mix + step)
+        : Math.max(v.goal, v.mix - step);
+      this._applyVoice(v);
     }
   }
 

@@ -62,7 +62,7 @@
     "build:examples": "vite build --mode examples",
     "dev": "vite --mode examples",
     "prepublishOnly": "pnpm build",
-    "test": "node --test test/sdf-pipeline.test.mjs test/journey.test.mjs test/conductor.test.mjs test/hydra.test.mjs test/rack.test.mjs test/dsp.test.mjs",
+    "test": "node --test test/sdf-pipeline.test.mjs test/journey.test.mjs test/conductor.test.mjs test/hydra.test.mjs test/rack.test.mjs test/circuit-graph.test.mjs test/dsp.test.mjs",
     "bridge": "node scripts/rack-bridge.mjs"
   },
   "keywords": [],
