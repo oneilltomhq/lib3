@@ -37,7 +37,14 @@ export function createMachine({
     if (cohesion) rack.add("/flubber/cohesion", bindUniform(cohesion.uniforms.uStr), { min: 0.3, max: 2 });
     if (flubber) {
       rack.add("/flubber/damp", bindUniform(flubber.u.uDamp), { min: 0.45, max: 2, unit: "/s" });
+      // refract re-swept 2026-07 on the new echo content (fullscreen
+      // backdrop, no room): at 0 the glass dies into a flat cutout wearing
+      // only its rim — still the clearest demo of what the echo feeds it;
+      // at 0.8 the lensing goes heavy and the field swims inside the body.
+      // Both legible, both safe.
       rack.add("/flubber/refract", bindUniform(flubber.u.uRefract), { min: 0, max: 0.8, voice: true });
+      // rim solo (black stage, orange skin alone) is the piece's best
+      // portrait — swept 0→2, tasteful throughout
       rack.add("/flubber/rim", bindUniform(flubber.u.uRimStrength), { min: 0, max: 2, voice: true });
     }
     if (synthU) {
@@ -45,10 +52,19 @@ export function createMachine({
       rack.add("/synth/pink", bindUniform(synthU.pink), { min: 0, max: 1.2, voice: true });
       rack.add("/synth/feed", bindUniform(synthU.feed), { min: 0, max: 0.08, voice: true });
       rack.add("/synth/haste", bindUniform(synthU.haste), { min: 0, max: 4 });
-      rack.add("/synth/gain", bindUniform(synthU.gain), { min: 0, max: 1.2, voice: true });
+      // gain is BONE with a floor, not a voice — swept 2026-07: 0 was safe
+      // and dramatic, but as a voice its mute/solo killed the stage every
+      // other synth voice performs on (pink/feed/noise solos went black).
+      // Floor 0.25 keeps the stage dimly lit; ceiling 1.0 measured — at 1.2
+      // the wash swallows the mass.
+      rack.add("/synth/gain", bindUniform(synthU.gain), { min: 0.25, max: 1.0 });
     }
     if (orbit) rack.add("/eye/period", bindKey(orbit, "period"), { min: 12, max: 90, unit: "s" });
     if (grade) {
+      // grade re-swept 2026-07 on the full frame: exposure 0.4 is a moody
+      // dusk (mass still reads), 2.0 a bright wash — display-only, cannot
+      // feed back, so the extremes are taste, not danger. contrast 2.2
+      // punches nicely; 0.8 goes soft and flat.
       rack.add("/eye/exposure", bindUniform(grade.exposure), { min: 0.4, max: 2 });
       rack.add("/eye/contrast", bindUniform(grade.contrast), { min: 0.8, max: 2.2 });
     }
