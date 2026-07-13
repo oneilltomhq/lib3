@@ -238,8 +238,9 @@ export function createMachine({
 
   // ---- hand interior -----------------------------------------------------
   const gh = lvl("hand", "hand", "machine", {
-    pointer: { x: 0.56, y: 0.22, color: "#f2b75c" },
-    scrub: { x: 0.78, y: 0.62, color: "#ffd9fb" },
+    pointer: { x: 0.54, y: 0.18, color: "#f2b75c" },
+    scrub: { x: 0.82, y: 0.44, color: "#ffd9fb" },
+    chord: { x: 0.62, y: 0.76, color: "#b8b8b4" },
   });
   const nPointer = gh.tap("pointer", {
     label: "pointer", init: "click me",
@@ -249,6 +250,10 @@ export function createMachine({
     label: "scrub", init: "—",
     caption: "artist mode: every knob row writes straight into the rack",
   });
+  const nChord = gh.tap("chord", {
+    label: "chord", init: "keys 1·2·3",
+    caption: "named gestures — many knobs glide to one authored feeling",
+  });
 
   // ---- live wiring -------------------------------------------------------
   const tension = sling.graph.get("tension");
@@ -257,6 +262,7 @@ export function createMachine({
     if (kind === "scrub") { nHand.set(`scrub ${detail.split("/").pop()}`); nScrub.set(detail); }
     if (kind === "mute") { nHand.set(`mute ${detail.split("/").pop()}`); }
     if (kind === "solo") { nHand.set(detail ? `solo ${detail.split("/").pop()}` : "solo off"); }
+    if (kind === "chord") { nHand.set(`chord ${detail}`); nChord.set(detail); }
   };
   // the eye's φ, recomputed from the same pacing formula the camera uses
   const phase = (t) => {

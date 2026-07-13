@@ -15,7 +15,7 @@ import {
   texture, screenUV, vec3, mix, smoothstep, uniform, screenCoordinate, float,
 } from "three/tsl";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import "./warp.js"; // registers the `warp` source before the api is built
+import { registerWarp } from "./warp.js";
 import { HydraSynth } from "../../src/hydra/index.js";
 import {
   FlubberField, wellDriver, noiseFlowDriver, cohesionDriver, burstDriver,
@@ -38,6 +38,7 @@ await renderer.init();
 // ---- synth: o0 warp nebula + o1 ember rim, each self-feeding ------------
 // display: true gives every output a STABLE third target (displayNode) —
 // the scene composites those, never the swapping ping-pong pair.
+registerWarp(); // before the api is built
 const synth = new HydraSynth({ renderer, width: 960, height: 540, outputs: 2, display: true });
 const { warp, osc, noise, src, o0, o1 } = synth.api;
 
@@ -198,6 +199,46 @@ const machine = createMachine({
   echoSize: () => ({ w: ping.read.width, h: ping.read.height }),
   echoLag: () => lastFdt * 1000,
   rack,
+});
+
+// ---- chords: named multi-knob gestures, composed from characterized solos --
+// each is one affect sentence + a list of ramped moves; the rack's glide
+// plays them, so a chord and a scrub move the SAME addresses
+const CHORDS = {
+  calm: {
+    affect: "the mass settles into syrup, the field slows, the camera lingers",
+    moves: [
+      ["/sling/drag", 0.9, 1200], ["/sling/squash", 0.35, 1200],
+      ["/flubber/noise", 0.15, 800], ["/synth/speed", 0.7, 800],
+      ["/synth/gain", 0.42, 800], ["/eye/period", 60, 1500],
+    ],
+  },
+  void: {
+    affect: "the stage falls to its floor and the glass wears only its ember skin",
+    moves: [
+      ["/synth/gain", 0.25, 900], ["/flubber/rim", 1.5, 900],
+      ["/flubber/refract", 0.12, 900], ["/eye/contrast", 1.6, 900],
+      ["/synth/pink", 0.2, 900],
+    ],
+  },
+  storm: {
+    affect: "the stir flattens and whips, the surface boils, the nebula churns",
+    moves: [
+      ["/sling/squash", 1.0, 800], ["/sling/spin", 2.6, 800],
+      ["/sling/drag", 0.25, 800], ["/flubber/noise", 0.9, 600],
+      ["/synth/speed", 1.6, 600], ["/synth/feed", 0.03, 600],
+      ["/eye/contrast", 1.45, 800],
+    ],
+  },
+};
+const playChord = (name) => {
+  for (const [path, v, ms] of CHORDS[name].moves) rack.set(path, v, ms);
+  machine.note("chord", name);
+};
+addEventListener("keydown", (ev) => {
+  const names = Object.keys(CHORDS);
+  const i = ev.key.charCodeAt(0) - 49; // keys 1..3
+  if (i >= 0 && i < names.length) playChord(names[i]);
 });
 
 // click/tap: a shockwave where the pointer ray crosses the blob's depth

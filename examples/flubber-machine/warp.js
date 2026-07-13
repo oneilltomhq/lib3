@@ -23,7 +23,10 @@ const fbm2 = (p) => {
   return v;
 };
 
-registerTransform("warp", {
+// explicit call, not an import side effect — rollup tree-shakes a bare
+// `import "./warp.js"` out of the production build and the source silently
+// vanishes from the api
+export const registerWarp = () => registerTransform("warp", {
   type: "src", defaults: [3.2, 0.34, 0.72, 0.5, 21, 1],
   fn: (st, scale, warm, cool, pink, seed, speed) => {
     const p = st.sub(0.5).mul(scale).add(seed);
